@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>systems.snapdragon</groupId>
+    <artifactId>snapdragon-parent</artifactId>
+    <version>1.0.0</version>
+    <relativePath/>
+  </parent>
+
+  <artifactId>snapdragon-commons</artifactId>
+  <version>1.0.0</version>
+  <packaging>jar</packaging>
+  <name>snapdragon-commons</name>
+  <description>Shared, canonical Snapdragon security/tenancy/config/web building blocks
+    (Casdoor JWT authorities, issuer-&gt;domain registry, role + tenant helpers, the
+    config-gated multi-issuer resource-server wiring, the BFF ApiException) — lifted
+    verbatim from the per-repo copies with every security behaviour preserved.</description>
+
+  <!-- A LIBRARY, not a Spring Boot application: disable the spring-boot repackage goal
+       (no executable jar / main class) so `install` produces a plain reusable jar. -->
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+        <configuration>
+          <skip>true</skip>
+        </configuration>
+      </plugin>
+    </plugins>
+  </build>
+
+  <!-- All compile dependencies (webflux, security, oauth2-resource-server,
+       spring-boot autoconfigure for @ConditionalOnExpression, reactor) and the test
+       stack are inherited from snapdragon-parent's common <dependencies>. No
+       repo-specific dependencies here — this is the shared core. -->
+</project>
