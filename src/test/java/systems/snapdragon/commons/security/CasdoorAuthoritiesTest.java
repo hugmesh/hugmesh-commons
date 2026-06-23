@@ -8,7 +8,6 @@ import org.springframework.security.oauth2.jwt.Jwt;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -32,7 +31,7 @@ class CasdoorAuthoritiesTest {
     }
 
     private static List<String> names(List<GrantedAuthority> as) {
-        return as.stream().map(GrantedAuthority::getAuthority).collect(Collectors.toList());
+        return as.stream().map(GrantedAuthority::getAuthority).toList();
     }
 
     @Nested
