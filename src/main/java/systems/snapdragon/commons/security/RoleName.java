@@ -4,75 +4,138 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonValue;
 
 /**
- * The CLOSED set of Snapdragon <em>base</em> role NAMES — the lowercase, on-the-wire
- * Casdoor role tokens {@code user} / {@code mod} / {@code admin} / {@code superadmin}.
+ * Typed, closed enumeration of the four Snapdragon <em>base</em> role
+ * tokens — the lowercase on-the-wire strings {@code "user"},
+ * {@code "mod"}, {@code "admin"}, and {@code "superadmin"} that Casdoor
+ * stores and the converter upper-cases into Spring authority strings.
  *
- * <p>This enum is the typed, single-source-of-truth form of the raw {@code "user"} /
- * {@code "mod"} / {@code "admin"} / {@code "superadmin"} string literals that were
- * scattered across the BFFs as arguments to the Casdoor role-assignment client
- * ({@code ensureUser(..., List<String> roles)} upper-cases each token into the Casdoor
- * {@code ROLE_<UPPER>} role) and to the usage-analytics
- * {@code UsageService.record(actor, List<String> roles, action)} (which compares the
- * list against {@code "admin"}). It applies Convention&nbsp;C ("a fixed, closed set of
- * String constants becomes an enum") to the highest-value, security-relevant case.
+ * <h2>Responsibility</h2>
  *
- * <p><b>WIRE CONTRACT — do not change the serialized value.</b> The {@link #value()}
- * returned here (and emitted via {@link JsonValue}) is the IDENTICAL lowercase string
- * that previously appeared as a literal. It is a CONTRACT with:
+ * <p>Applies the code-convention principle that a fixed, closed set of
+ * security-critical string constants should be an enum. The raw
+ * {@code "admin"} / {@code "superadmin"} string literals were previously
+ * scattered across every BFF as arguments to:
  * <ul>
- *   <li><b>Casdoor</b> — {@code CasdoorAdminClient.ensureUser(...)} upper-cases each
- *       token (e.g. {@code "admin"} &rarr; the Casdoor role {@code ADMIN}/{@code ROLE_ADMIN}).
- *       The token MUST stay lowercase so that upper-casing reproduces the existing
- *       Casdoor role name byte-for-byte.</li>
- *   <li>the <b>gateway / {@link CasdoorAuthorities} converter</b> — which derives the
- *       Spring authority {@code ROLE_<UPPER>} from the same role NAME.</li>
- *   <li><b>JSON / DB</b> — wherever these tokens are serialized.</li>
+ *   <li>{@code CasdoorAdminClient.ensureUser(..., List<String> roles)}
+ *       — which upper-cases each token into the Casdoor role
+ *       {@code ADMIN} / {@code ROLE_ADMIN}.</li>
+ *   <li>{@code UsageService.record(actor, List<String> roles, action)}
+ *       — which compares the list against {@code "admin"} to mark
+ *       admin-initiated events.</li>
  * </ul>
- * Changing a {@code value()} (e.g. to upper-case) is a privilege/authZ bug: it would
- * silently rename or drop a Casdoor role grant. The enum CONSTANT names are upper-case
- * (Java convention); the wire value is the lower-case {@link #value()} — never confuse
+ *
+ * <p>This enum is the single source of truth for those tokens and
+ * prevents a typo ({@code "admim"}) from silently granting or denying
+ * an incorrect role.
+ *
+ * <h2>Wire contract — do NOT change the serialized value</h2>
+ *
+ * <p>The {@link #value()} returned by each constant (and emitted via
+ * {@link JsonValue}) is the IDENTICAL lowercase string that Casdoor /
+ * the gateway have always seen. It is a live contract with three systems:
+ *
+ * <ul>
+ *   <li><b>Casdoor</b> — upper-cases each token to produce the Casdoor
+ *       role name ({@code "admin"} becomes {@code ADMIN} /
+ *       {@code ROLE_ADMIN}). The token MUST stay lowercase so that
+ *       upper-casing reproduces the existing Casdoor role
+ *       byte-for-byte.</li>
+ *   <li><b>The gateway / {@link CasdoorAuthorities} converter</b> —
+ *       derives the Spring authority {@code ROLE_<UPPER>} from the same
+ *       role name read out of the JWT.</li>
+ *   <li><b>JSON / DB</b> — wherever these tokens are serialized into
+ *       event logs, usage records, or API payloads.</li>
+ * </ul>
+ *
+ * <p>Changing a {@code value()} (e.g. to upper-case) is a privilege /
+ * authorisation bug: it would silently rename or drop a Casdoor role
+ * grant. The enum CONSTANT names are upper-case (Java convention); the
+ * wire token is always the lowercase {@link #value()} — never confuse
  * the two.
  *
- * <p><b>Scope — base roles ONLY (a genuinely closed set).</b> This enum deliberately
- * does NOT model:
+ * <h2>Scope — base roles only (a genuinely closed set)</h2>
+ *
+ * <p>This enum deliberately does <em>not</em> model:
  * <ul>
- *   <li>per-domain DYNAMIC tenant scopes ({@code DOMAIN_<brand>}) — an OPEN set keyed on
- *       the validated issuer; see {@link CasdoorAuthorities} / {@link DomainRegistry}.</li>
- *   <li>service / capability roles ({@code matrix}, {@code mastodon}, {@code games},
- *       {@code image-builder}, the {@code *-domainlocked} / {@code *-external-client}
- *       variants, …) — those are an extensible set granted independently and MUST stay
- *       free-form String.</li>
- *   <li>the reserved authority PREFIXES ({@code ROLE_} / {@code DOMAIN_} /
- *       {@code MFA_SATISFIED}) — handled by {@link Roles} / {@link CasdoorAuthorities}.</li>
+ *   <li>Per-domain dynamic tenant scopes ({@code DOMAIN_<brand>}) — an
+ *       open set keyed on the validated token issuer; see
+ *       {@link CasdoorAuthorities} and {@link DomainRegistry}.</li>
+ *   <li>Service / capability roles ({@code matrix}, {@code mastodon},
+ *       {@code games}, {@code image-builder}, the
+ *       {@code *-domainlocked} / {@code *-external-client} variants,
+ *       etc.) — an extensible set granted independently that must remain
+ *       free-form strings.</li>
+ *   <li>Reserved authority prefixes ({@code ROLE_} / {@code DOMAIN_} /
+ *       {@code MFA_SATISFIED}) — handled by {@link Roles} and
+ *       {@link CasdoorAuthorities}.</li>
  * </ul>
- * It COMPLEMENTS {@link Roles} (which operates on the {@code ROLE_}-prefixed AUTHORITY
- * form): {@code Roles} answers "does this principal hold role X / which domain"; this
- * enum names the lowercase role TOKENS handed to Casdoor / usage at the write boundary.
+ *
+ * <p>This enum <em>complements</em> {@link Roles}: {@code Roles} answers
+ * "does this principal hold role X / which domain is it in" at the
+ * authority-string level; {@code RoleName} names the lowercase
+ * write-boundary tokens passed to Casdoor and usage recording.
+ *
+ * <h2>Consumers</h2>
+ *
+ * <ul>
+ *   <li>{@code snapdragon-admin-bff-api} — Casdoor role-assignment
+ *       calls</li>
+ *   <li>{@code snapdragon-federation-api} — usage service role
+ *       recording</li>
+ *   <li>{@code snapdragon-superadmin-service-catalog-ui} — service-catalog
+ *       role grants</li>
+ * </ul>
+ *
+ * @see Roles
+ * @see CasdoorAuthorities
+ * @see DomainRegistry
+ * @since snapdragon-commons initial extraction from per-repo copies
  */
 public enum RoleName {
 
-    /** The authenticated-user floor role. Wire token {@code "user"}. */
+    /**
+     * The authenticated-user floor role — every logged-in principal holds
+     * at least this role. Wire token: {@code "user"}.
+     */
     USER("user"),
 
-    /** The moderator role. Wire token {@code "mod"}. */
+    /**
+     * The per-domain moderator role — may moderate content within the
+     * caller's own brand. Wire token: {@code "mod"}.
+     */
     MOD("mod"),
 
-    /** The per-domain administrator role. Wire token {@code "admin"}. */
+    /**
+     * The per-domain administrator role — manages users, services, and
+     * configuration within the caller's own brand.
+     * Wire token: {@code "admin"}.
+     */
     ADMIN("admin"),
 
-    /** The cross-domain infra super-role. Wire token {@code "superadmin"}. */
+    /**
+     * The cross-domain infra super-role — unscoped access across every
+     * brand; the infra control-plane operator.
+     * Wire token: {@code "superadmin"}.
+     */
     SUPERADMIN("superadmin");
 
+    /** The lowercase on-the-wire token for this role name. */
     private final String value;
 
-    RoleName(String value) {
-        this.value = value;
+    RoleName(final String wireValue) {
+        this.value = wireValue;
     }
 
     /**
-     * The exact lowercase on-the-wire role token (e.g. {@code "admin"}). This is what
-     * Casdoor / usage / JSON have always seen; it is emitted as the Jackson
-     * serialization of this enum via {@link JsonValue}.
+     * The exact lowercase on-the-wire role token (e.g. {@code "admin"}).
+     *
+     * <p>This is the string Casdoor / usage recording / JSON
+     * serialization have always seen. It is emitted as the Jackson
+     * serialization of this enum via {@link JsonValue}. Never returns the
+     * upper-case Java constant name ({@code ADMIN}) — always the
+     * lower-case wire form.
+     *
+     * @return the lowercase wire token for this role name
      */
     @JsonValue
     public String value() {
@@ -80,53 +143,97 @@ public enum RoleName {
     }
 
     /**
-     * Resolve a wire token to its {@link RoleName}, or {@code null} when the token is
-     * not one of the four CLOSED base roles. FAIL-CLOSED and tolerant: a {@code null} /
-     * blank / unknown token (e.g. a dynamic {@code matrix} / {@code DOMAIN_*} string) is
-     * NOT a base role and returns {@code null} rather than throwing — the caller keeps
-     * the original String for the open-set cases. Matching is case-insensitive and
-     * whitespace-trimmed on READ only; the canonical stored/emitted form is always the
-     * lowercase {@link #value()}.
+     * Resolves a wire token to its {@link RoleName}, or {@code null}
+     * when the token is not one of the four closed base roles.
      *
-     * <p>Used as the Jackson {@link JsonCreator} so deserializing an unknown role token
-     * yields {@code null} (fail-closed) instead of an enum that silently widens the
-     * closed set.
+     * <p>Designed to be fail-closed and tolerant:
+     * <ul>
+     *   <li>A {@code null}, blank, or unknown token (e.g. a dynamic
+     *       {@code "matrix"} or {@code "DOMAIN_*"} string) is NOT a
+     *       base role and returns {@code null} rather than throwing —
+     *       the caller keeps the original string for the open-set
+     *       service-role cases.</li>
+     *   <li>Matching is case-insensitive and whitespace-trimmed on read
+     *       only; the canonical stored and emitted form is always the
+     *       lowercase {@link #value()}.</li>
+     * </ul>
+     *
+     * <p>This method is also the Jackson {@link JsonCreator}, so
+     * deserializing an unknown role token yields {@code null}
+     * (fail-closed) instead of an {@link IllegalArgumentException} that
+     * would widen the closed set at runtime.
+     *
+     * @param token the wire token to resolve (may be {@code null})
+     * @return the matching {@link RoleName}, or {@code null} for any
+     *         token outside the closed set
      */
     @JsonCreator
-    public static RoleName fromWire(String token) {
-        if (token == null) return null;
+    public static RoleName fromWire(final String token) {
+        if (token == null) {
+            return null;
+        }
         String t = token.trim();
-        if (t.isEmpty()) return null;
+        if (t.isEmpty()) {
+            return null;
+        }
+        // Linear scan over 4 constants — sufficient for this closed set.
         for (RoleName r : values()) {
-            if (r.value.equalsIgnoreCase(t)) return r;
+            if (r.value.equalsIgnoreCase(t)) {
+                return r;
+            }
         }
         return null;
     }
 
     /**
-     * Strict variant of {@link #fromWire(String)}: resolve a token that the caller
-     * ASSERTS is a base role, throwing {@link IllegalArgumentException} on anything
-     * outside the closed set. Use where an unknown base-role token is a programming
-     * error rather than an expected dynamic/open-set value.
+     * Strict variant of {@link #fromWire(String)}: resolves a token that
+     * the caller asserts is a base role, throwing
+     * {@link IllegalArgumentException} on any token outside the closed
+     * set.
+     *
+     * <p>Use where an unknown base-role token is a programming error
+     * rather than an expected dynamic / open-set value (e.g. validating
+     * a role string that came from internal configuration rather than
+     * user input).
+     *
+     * @param token the wire token to resolve; must not be {@code null}
+     *              and must be a recognised base-role name
+     * @return the matching {@link RoleName}
+     * @throws IllegalArgumentException if {@code token} is not one of
+     *                                  the four base role names
      */
-    public static RoleName require(String token) {
+    public static RoleName require(final String token) {
         RoleName r = fromWire(token);
         if (r == null) {
-            throw new IllegalArgumentException("not a closed base role name: " + token);
+            throw new IllegalArgumentException(
+                    "not a closed base role name: " + token);
         }
         return r;
     }
 
-    /** True iff {@code token} is one of the four CLOSED base role names
-     *  (case-insensitive, trimmed). A dynamic/service/domain token returns
-     *  {@code false}. */
-    public static boolean isBaseRole(String token) {
+    /**
+     * Returns {@code true} iff {@code token} is one of the four closed
+     * base role names (case-insensitive, whitespace-trimmed). Dynamic
+     * service-role or domain-scope tokens return {@code false}.
+     *
+     * @param token the token to test (may be {@code null})
+     * @return {@code true} iff {@code token} resolves to a
+     *         {@link RoleName}
+     */
+    public static boolean isBaseRole(final String token) {
         return fromWire(token) != null;
     }
 
-    /** The lowercase wire token — identical to {@link #value()}. Provided so callers
-     *  that already hold a {@code RoleName} read naturally; never returns the
-     *  upper-case constant name. */
+    /**
+     * Returns the lowercase wire token — identical to {@link #value()}.
+     *
+     * <p>Provided so callers that already hold a {@link RoleName} can
+     * interpolate it into strings naturally (e.g.
+     * {@code "role: " + roleName}). Never returns the upper-case Java
+     * constant name.
+     *
+     * @return the lowercase wire token for this role name
+     */
     @Override
     public String toString() {
         return value;
