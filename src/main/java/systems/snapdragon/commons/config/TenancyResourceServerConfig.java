@@ -296,24 +296,41 @@ public class TenancyResourceServerConfig {
         if (issuers.isEmpty()) {
             return;
         }
-        Thread warmer = new Thread(() -> {
-            for (String iss : issuers) {
-                try {
-                    // computeIfAbsent is thread-safe; if the lazy path
-                    // already built the manager for this issuer, this is
-                    // a harmless no-op.
-                    byIssuer.computeIfAbsent(
-                            iss, this::managerForIssuer);
-                } catch (RuntimeException ignored) {
-                    // Discovery unreachable at boot (Casdoor not yet
-                    // ready). Leave the entry absent; the lazy path
-                    // rebuilds it on first request.
-                }
-            }
-        }, "tenancy-issuer-warmup");
+        // Delegate warmup body to a named helper to satisfy lambda-length limits.
+        Thread warmer = new Thread(
+                () -> warmAllIssuers(issuers, byIssuer),
+                "tenancy-issuer-warmup");
         // Daemon so this thread never prevents JVM shutdown.
         warmer.setDaemon(true);
         warmer.start();
+    }
+
+    /**
+     * Pre-builds every trusted issuer's authentication manager so the
+     * first real request to each issuer hits a warm cache rather than
+     * paying the synchronous OIDC discovery cost on the request thread.
+     *
+     * <p>Failures are swallowed: a transient Casdoor outage at boot must
+     * never crash startup or fail-open; the lazy path rebuilds absent
+     * entries on the first affected request.
+     *
+     * @param issuers  the set of trusted issuer URIs to warm
+     * @param byIssuer the shared issuer-to-manager cache to pre-populate
+     */
+    private void warmAllIssuers(
+            final Set<String> issuers,
+            final Map<String, ReactiveAuthenticationManager> byIssuer) {
+        for (String iss : issuers) {
+            try {
+                // computeIfAbsent is thread-safe; if the lazy path already
+                // built the manager for this issuer this is a harmless no-op.
+                byIssuer.computeIfAbsent(iss, this::managerForIssuer);
+            } catch (RuntimeException ignored) {
+                // Discovery unreachable at boot (Casdoor not yet ready).
+                // Leave the entry absent; the lazy path rebuilds on first
+                // request.
+            }
+        }
     }
 
     /**
