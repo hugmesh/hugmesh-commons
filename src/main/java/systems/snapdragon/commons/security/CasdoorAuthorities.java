@@ -12,76 +12,141 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Single source of truth for the Casdoor JWT -&gt; Spring authorities mapping —
- * canonical, shared form (the per-repo copies were logic-byte-identical, differing
- * only in access modifiers). Lifted {@code public} so every reactive BFF + its
- * single-issuer {@code SecurityConfig} and optional multi-issuer
- * {@link TenancyResourceServerConfig} decoder paths emit BYTE-IDENTICAL authorities.
+ * Single source of truth for the Casdoor JWT-to-Spring-authorities mapping used by
+ * every reactive BFF's resource-server security configuration.
  *
- * <p>Three claim sources, in precedence:
- * <ol>
- *   <li>{@code roles} array (strings OR objects with a {@code name} field) -&gt;
- *       {@code ROLE_<UPPER>}.</li>
- *   <li>{@code permissions} array -&gt; verbatim (non-prefixed) authorities, EXCEPT
- *       any entry whose value starts with a RESERVED prefix ({@code ROLE_} /
- *       {@code DOMAIN_} / {@code MFA_SATISFIED}) is dropped — those authorities come
- *       ONLY from controlled logic, never from a user-influenced permission string
- *       (authority-injection defense; see {@code RESERVED_PREFIXES}).</li>
- *   <li>{@code isAdmin} boolean (legacy) -&gt; {@code ROLE_ADMIN}.</li>
- * </ol>
- * Every authenticated principal floors to {@code ROLE_USER} and is stamped with
- * exactly one issuer-derived {@code DOMAIN_<x>} authority.
+ * <h2>Responsibility</h2>
+ *
+ * <p>Produces the {@link GrantedAuthority} list that Spring Security attaches to the
+ * authenticated principal from three claim sources (see below). Earlier per-repo copies
+ * were logic-byte-identical, differing only in access modifiers and copy-paste drift;
+ * this class is the canonical form so every BFF's single-issuer {@code SecurityConfig}
+ * and the optional multi-issuer {@link TenancyResourceServerConfig} decoder paths emit
+ * BYTE-IDENTICAL authorities.
+ *
+ * <h2>Three claim sources</h2>
+ *
+ * <pre>
+ *  Priority | Claim               | Authority emitted
+ *  ─────────┼─────────────────────┼──────────────────────────────────────────────
+ *  1        | {@code roles} array | {@code ROLE_<UPPER>} per entry (string or
+ *           |                     | object with {@code name} field)
+ *  2        | {@code permissions} | verbatim string — UNLESS it starts with a
+ *           | array               | RESERVED prefix (see {@link #RESERVED_PREFIXES})
+ *  3        | {@code isAdmin}     | {@code ROLE_ADMIN} (legacy boolean claim)
+ *           | boolean             |
+ *  always   | validated iss       | {@code DOMAIN_<x>} — exactly one, never null
+ *  D8 opt-in| mfa_satisfied_at   | {@code MFA_SATISFIED} (when enabled and fresh)
+ * </pre>
+ *
+ * <p>Every authenticated principal floors to {@code ROLE_USER} and receives exactly one
+ * issuer-derived {@code DOMAIN_<x>} authority.
+ *
+ * <h2>Authority-injection defense</h2>
+ *
+ * <p>A {@code permissions} entry that starts with a RESERVED prefix ({@code ROLE_},
+ * {@code DOMAIN_}, or {@code MFA_SATISFIED}) is DROPPED. Without this guard, a token
+ * carrying {@code permissions:["DOMAIN_brandy"]} could forge a cross-tenant scope, and
+ * {@code permissions:["ROLE_SUPERADMIN"]} could forge the super-role. See
+ * {@link #RESERVED_PREFIXES}.
+ *
+ * <h2>Consumers</h2>
+ *
+ * <ul>
+ *   <li>{@code snapdragon-admin-bff-api} {@code SecurityConfig} (single-issuer path)</li>
+ *   <li>{@code snapdragon-federation-api} {@code SecurityConfig} (single-issuer path)</li>
+ *   <li>{@code snapdragon-user-bff} {@code SecurityConfig} (single-issuer path)</li>
+ *   <li>{@code snapdragon-owncast-bff} {@code SecurityConfig} (single-issuer path)</li>
+ *   <li>{@code snapdragon-forum-bff} {@code SecurityConfig} (single-issuer path)</li>
+ *   <li>{@link TenancyResourceServerConfig} (multi-issuer path — same converter)</li>
+ * </ul>
+ *
+ * @see DomainRegistry
+ * @see Roles
+ * @see TenancyResourceServerConfig
+ * @since snapdragon-commons initial extraction from per-repo copies
  */
 public final class CasdoorAuthorities {
 
+    // Utility class — no instances.
     private CasdoorAuthorities() {}
 
+    // -------------------------------------------------------------------------
+    // MFA configuration record
+    // -------------------------------------------------------------------------
+
     /**
-     * MFA derivation config for the converter (D8 gateway MFA floor). Carried so the
-     * single-issuer ({@code SecurityConfig}) and multi-issuer
-     * ({@link TenancyResourceServerConfig}) paths derive the {@code MFA_SATISFIED}
-     * marker BYTE-IDENTICALLY. {@code enabled} is {@code app.mfa.enabled} (default
-     * {@code false} — ships dark: when off, the converter emits the legacy authority
-     * set verbatim and {@code MFA_SATISFIED} is NEVER produced).
-     * {@code freshnessWindowMillis} is {@code app.mfa.freshness-window} (default 10m).
+     * Configuration carrier for the D8 gateway MFA floor derivation.
      *
-     * @param enabled               whether the {@code MFA_SATISFIED} marker is derived at all
-     * @param freshnessWindowMillis the {@code 0 <= now - ts <= window} freshness window
+     * <p>Carried as a value object so the single-issuer ({@code SecurityConfig}) and
+     * multi-issuer ({@link TenancyResourceServerConfig}) paths derive the
+     * {@code MFA_SATISFIED} marker BYTE-IDENTICALLY, using the same
+     * {@code app.mfa.enabled} and {@code app.mfa.freshness-window} values.
+     *
+     * <p>Ships DARK: when {@code enabled} is {@code false} (the default), the converter
+     * emits the legacy authority set verbatim and {@code MFA_SATISFIED} is NEVER
+     * produced. Flipping {@code enabled} to {@code true} activates freshness checking
+     * against the BFF-written {@link Roles#MFA_SATISFIED_AT_CLAIM} claim.
+     *
+     * @param enabled               whether the {@code MFA_SATISFIED} marker is derived
+     *                              at all; {@code false} = legacy authority set (dark
+     *                              default)
+     * @param freshnessWindowMillis the maximum accepted age of the {@code mfa_satisfied_at}
+     *                              stamp — {@code 0 <= (now - ts) <= window}; typically
+     *                              {@code 600_000} (10 minutes)
      */
     public record MfaConfig(boolean enabled, long freshnessWindowMillis) {
-        /** The dark default — MFA derivation OFF, byte-identical legacy behaviour. */
+
+        /**
+         * The dark default — MFA derivation OFF, byte-identical to the legacy authority
+         * set that existed before the D8 MFA floor was introduced.
+         */
         public static final MfaConfig DISABLED = new MfaConfig(false, 0L);
     }
 
+    // -------------------------------------------------------------------------
+    // Authority-injection defense
+    // -------------------------------------------------------------------------
+
     /**
-     * Authority prefixes RESERVED for the converter's own controlled logic and
-     * therefore NEVER allowed to originate from a user-influenced claim string:
+     * Authority-string prefixes RESERVED for the converter's own controlled logic —
+     * never allowed to originate from a user-influenced {@code permissions} claim entry.
+     *
      * <ul>
-     *   <li>{@code ROLE_} — emitted ONLY from the {@code roles} claim (each role name
-     *       upper-cased and prefixed here) and the legacy {@code isAdmin} boolean. A
-     *       verbatim {@code permissions} entry must never become a {@code ROLE_*}
-     *       authority.</li>
-     *   <li>{@code DOMAIN_} — emitted ONLY from the cryptographically-validated issuer
-     *       (exactly one, added last). A verbatim {@code permissions} entry must never
-     *       forge a {@code DOMAIN_*} tenant scope, and a {@code roles} entry cannot
-     *       either (it always gains the {@code ROLE_} prefix first, so
-     *       {@code "DOMAIN_x" -> "ROLE_DOMAIN_X"}, which is an inert non-tenant
-     *       authority).</li>
-     *   <li>{@code MFA_SATISFIED} (D8) — the second-factor marker, emitted ONLY
-     *       from the BFF-written, freshness-validated {@code mfa_satisfied_at}
-     *       claim (see {@link #authorities}), NEVER from a roles/permissions
-     *       entry. A forged {@code permissions:["MFA_SATISFIED"]} must be dropped
-     *       so a step-up gate can't be satisfied without an actual recent MFA.
-     *       Listed as a full prefix (not just an exact value) so casing /
-     *       whitespace variants are caught by the same trim+upper guard.</li>
+     *   <li><b>{@code ROLE_}</b> — emitted ONLY from the {@code roles} claim (each role
+     *       name upper-cased and prefixed) and from the legacy {@code isAdmin} boolean.
+     *       A verbatim {@code permissions} entry must never become a {@code ROLE_*}
+     *       authority because doing so would let a user-supplied permission string forge
+     *       any Spring Security role.</li>
+     *   <li><b>{@code DOMAIN_}</b> — emitted ONLY from the cryptographically-validated
+     *       {@code iss} (exactly one per token). A verbatim {@code permissions} entry
+     *       must never forge a {@code DOMAIN_*} tenant scope or a token from brand-X
+     *       could escalate into brand-Y. Note that a {@code roles} entry CAN contain
+     *       the string {@code "DOMAIN_x"}, but the converter always prepends {@code ROLE_}
+     *       first, producing the inert authority {@code ROLE_DOMAIN_X} — not a
+     *       tenant scope.</li>
+     *   <li><b>{@code MFA_SATISFIED}</b> (D8) — the second-factor marker, emitted ONLY
+     *       from the BFF-written, freshness-validated {@link Roles#MFA_SATISFIED_AT_CLAIM}
+     *       claim. A forged {@code permissions:["MFA_SATISFIED"]} must be dropped so a
+     *       step-up gate cannot be satisfied without an actual recent MFA event. Listed
+     *       as a full prefix rather than an exact match so any casing / whitespace variant
+     *       is caught by the same trim-and-upper guard.</li>
      * </ul>
-     * SECURITY: without this filter a brand-X token carrying
+     *
+     * <p>Security: without this filter a brand-X token carrying
      * {@code permissions:["DOMAIN_brandy"]} or {@code permissions:["ROLE_SUPERADMIN"]}
-     * would inject a forged tenant scope / super-role and escalate cross-domain;
-     * a {@code permissions:["MFA_SATISFIED"]} would forge a second factor.
+     * would inject a forged tenant scope / super-role and escalate cross-domain. A
+     * {@code permissions:["MFA_SATISFIED"]} would forge a second factor.
      */
     private static final String[] RESERVED_PREFIXES = {"ROLE_", "DOMAIN_", "MFA_SATISFIED"};
 
+    /**
+     * Returns {@code true} iff the given authority string starts with a RESERVED prefix
+     * and must therefore be dropped from the {@code permissions} claim.
+     *
+     * @param authority the authority string to test (trimmed, upper-cased before check)
+     * @return {@code true} iff the string starts with any of the {@link #RESERVED_PREFIXES}
+     */
     private static boolean isReserved(String authority) {
         String upper = authority.trim().toUpperCase();
         for (String prefix : RESERVED_PREFIXES) {
@@ -90,106 +155,182 @@ public final class CasdoorAuthorities {
         return false;
     }
 
-    /** Build the converter bound to the given {@link DomainRegistry} (used to resolve
-     *  the issuer -&gt; {@code DOMAIN_<x>} authority). MFA derivation OFF — the legacy
-     *  byte-identical authority set (no {@code MFA_SATISFIED}). */
+    // -------------------------------------------------------------------------
+    // Converter factories
+    // -------------------------------------------------------------------------
+
+    /**
+     * Builds a {@link Converter} from {@link Jwt} to a reactive {@link Flux} of
+     * {@link GrantedAuthority} objects, bound to the given {@link DomainRegistry}.
+     *
+     * <p>MFA derivation is OFF ({@link MfaConfig#DISABLED}) — the emitted authority
+     * set is byte-identical to the legacy set that existed before the D8 MFA floor.
+     * Use this overload when the repo has not yet opted into MFA checks.
+     *
+     * @param domainRegistry the issuer-to-domain registry used to resolve the
+     *                       {@code DOMAIN_<x>} authority; may be {@code null} (maps
+     *                       all issuers to {@code "default"})
+     * @return a converter that, for each validated JWT, emits the Snapdragon authority
+     *         set as a {@link Flux}
+     */
     public static Converter<Jwt, Flux<GrantedAuthority>> converter(DomainRegistry domainRegistry) {
         return converter(domainRegistry, MfaConfig.DISABLED);
     }
 
-    /** Build the converter bound to the given {@link DomainRegistry} with the D8
-     *  {@link MfaConfig}. When {@code mfa.enabled()} is {@code false} (the dark
-     *  default) the emitted authorities are byte-identical to the legacy set;
-     *  when {@code true} a FRESH BFF-written {@code mfa_satisfied_at} claim adds
-     *  the {@code MFA_SATISFIED} marker. Production clock is
-     *  {@link System#currentTimeMillis()}. */
+    /**
+     * Builds a {@link Converter} from {@link Jwt} to a reactive {@link Flux} of
+     * {@link GrantedAuthority} objects, bound to the given {@link DomainRegistry} and
+     * {@link MfaConfig}.
+     *
+     * <p>When {@code mfa.enabled()} is {@code false} (the dark default) the emitted
+     * authorities are byte-identical to the legacy set. When {@code true}, a FRESH
+     * BFF-written {@link Roles#MFA_SATISFIED_AT_CLAIM} claim adds the
+     * {@link Roles#MFA_SATISFIED} marker. Production clock is
+     * {@link System#currentTimeMillis()}.
+     *
+     * @param domainRegistry the issuer-to-domain registry; may be {@code null}
+     * @param mfa            the MFA derivation configuration; must not be {@code null}
+     * @return a converter emitting the Snapdragon authority set as a {@link Flux}
+     */
     public static Converter<Jwt, Flux<GrantedAuthority>> converter(DomainRegistry domainRegistry,
-                                                                   MfaConfig mfa) {
+                                                                    MfaConfig mfa) {
+        // Wrap the pure mapping in a Flux so it fits the ReactiveJwtAuthenticationConverter API.
         return jwt -> Flux.fromIterable(
                 authorities(jwt, domainRegistry, mfa, System.currentTimeMillis()));
     }
 
-    /** Compute the authority list for a token (the pure mapping, exposed for reuse +
-     *  unit testing). MFA derivation OFF — legacy authority set. */
+    // -------------------------------------------------------------------------
+    // Pure mapping (also exposed for unit testing)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Computes the authority list for a validated JWT without MFA derivation — the
+     * legacy authority set.
+     *
+     * <p>Exposed as a public method (not just via the converter) so it can be called
+     * directly in unit tests that want a plain {@code List} rather than a {@link Flux}.
+     *
+     * @param jwt            the validated JWT to map; must not be {@code null}
+     * @param domainRegistry the issuer-to-domain registry; may be {@code null}
+     * @return a new mutable list of {@link GrantedAuthority} objects
+     */
     public static List<GrantedAuthority> authorities(Jwt jwt, DomainRegistry domainRegistry) {
         return authorities(jwt, domainRegistry, MfaConfig.DISABLED, System.currentTimeMillis());
     }
 
-    /** Compute the authority list for a token with the D8 {@link MfaConfig} and an
-     *  explicit {@code now} (epoch-millis) so the freshness window is
-     *  deterministically unit-testable. */
+    /**
+     * Computes the authority list for a validated JWT with explicit {@link MfaConfig}
+     * and a caller-supplied {@code now} epoch-millis clock, enabling deterministic
+     * unit tests of the MFA freshness window.
+     *
+     * <p>Mapping steps, in order:
+     * <ol>
+     *   <li>Add {@code ROLE_USER} as the floor authority — every authenticated
+     *       principal holds this.</li>
+     *   <li>Map the {@code roles} claim entries to {@code ROLE_<UPPER>} authorities
+     *       (string or object shape, both handled).</li>
+     *   <li>Map the {@code permissions} claim entries verbatim — but DROP any entry
+     *       whose upper-cased form starts with a {@link #RESERVED_PREFIXES} prefix
+     *       (authority-injection defense).</li>
+     *   <li>Add {@code ROLE_ADMIN} from the legacy {@code isAdmin: true} boolean claim
+     *       if present.</li>
+     *   <li>Optionally add {@link Roles#MFA_SATISFIED} when MFA is enabled and the
+     *       {@link Roles#MFA_SATISFIED_AT_CLAIM} claim is fresh.</li>
+     *   <li>Add exactly one {@code DOMAIN_<x>} authority derived from the
+     *       cryptographically-validated {@code iss} claim via the registry. A null
+     *       domain (unknown issuer in multi-brand mode) maps to {@code "default"}
+     *       rather than emitting {@code "DOMAIN_null"}.</li>
+     * </ol>
+     *
+     * @param jwt            the validated JWT to map; must not be {@code null}
+     * @param domainRegistry the issuer-to-domain registry; may be {@code null}
+     * @param mfa            the MFA derivation configuration; must not be {@code null}
+     * @param now            current epoch-milliseconds for the MFA freshness check;
+     *                       use {@link System#currentTimeMillis()} in production
+     * @return a new mutable list of {@link GrantedAuthority} objects
+     */
     public static List<GrantedAuthority> authorities(Jwt jwt, DomainRegistry domainRegistry,
-                                                     MfaConfig mfa, long now) {
-        List<GrantedAuthority> authorities = new ArrayList<>();
-        authorities.add(new SimpleGrantedAuthority("ROLE_USER")); // floor — UNCHANGED
+                                                      MfaConfig mfa, long now) {
+        var authorities = new ArrayList<GrantedAuthority>();
 
+        // 1. Floor authority: every authenticated principal holds ROLE_USER.
+        authorities.add(new SimpleGrantedAuthority("ROLE_USER"));
+
+        // 2. Map the roles claim to ROLE_<UPPER> authorities.
         Object rolesClaim = jwt.getClaim("roles");
         if (rolesClaim instanceof Collection<?> list) {
             for (Object r : list) {
                 String name = roleNameOf(r);
                 if (!name.isBlank()) {
-                    // Always ROLE_-prefixed, so a roles entry can NEVER inject a
-                    // DOMAIN_ authority: "DOMAIN_x" -> "ROLE_DOMAIN_X" (inert,
-                    // non-tenant). See RESERVED_PREFIXES.
+                    // Prefix forces ROLE_ on every roles-claim entry. This means a roles
+                    // entry of "DOMAIN_x" becomes "ROLE_DOMAIN_X" — an inert authority that
+                    // cannot satisfy a tenant-scope check (see RESERVED_PREFIXES).
                     authorities.add(new SimpleGrantedAuthority(
                             "ROLE_" + name.trim().toUpperCase()));
                 }
             }
         }
 
+        // 3. Map the permissions claim verbatim, dropping reserved-prefix entries.
         Object permsClaim = jwt.getClaim("permissions");
         if (permsClaim instanceof Collection<?> list) {
             for (Object p : list) {
                 if (p == null) continue;
                 String perm = p.toString().trim();
                 if (perm.isEmpty()) continue;
-                // RESERVED-PREFIX GUARD (authority-injection defense). A verbatim
-                // permission string MUST NOT carry the ROLE_ or DOMAIN_ prefix — those
-                // authorities come ONLY from the converter's controlled logic
-                // (roles-claim -> ROLE_<UPPER>; validated issuer -> DOMAIN_<x>).
-                // Skipping such entries stops a brand-X token carrying
-                // permissions:["DOMAIN_brandy"] (forged tenant scope) or
-                // permissions:["ROLE_SUPERADMIN"] (forged super-role) from escalating
-                // cross-domain. See RESERVED_PREFIXES.
+                // AUTHORITY-INJECTION DEFENSE: drop any permissions entry that starts
+                // with a reserved prefix — those authorities come only from controlled
+                // logic (roles claim -> ROLE_<UPPER>, validated iss -> DOMAIN_<x>,
+                // MFA claim -> MFA_SATISFIED). See RESERVED_PREFIXES.
                 if (isReserved(perm)) continue;
                 authorities.add(new SimpleGrantedAuthority(perm));
             }
         }
 
+        // 4. Legacy isAdmin boolean — adds ROLE_ADMIN when the boolean is true.
         if (Boolean.TRUE.equals(jwt.getClaim("isAdmin"))) {
             authorities.add(new SimpleGrantedAuthority("ROLE_ADMIN"));
         }
 
-        // MFA_SATISFIED marker (D8 gateway MFA floor) — ships DARK (app.mfa.enabled,
-        // default false). Derived ONLY from the BFF-written, freshness-validated
-        // `mfa_satisfied_at` JWT-Custom claim (Roles.isMfaSatisfied), NEVER from a
-        // roles/permissions entry (those carrying MFA_SATISFIED were already dropped
-        // by the reserved-prefix guard above). A NON-role SimpleGrantedAuthority
-        // (no ROLE_ prefix) so it can never satisfy a hasRole()/route-access role
-        // check by accident — it is a distinct second-factor proof consumed only by
-        // the mfa_required route gate + the privileged floor. When the flag is off
-        // the marker is never produced => byte-identical legacy authority set.
+        // 5. MFA_SATISFIED marker (D8 MFA floor, ships dark — default off).
+        // Derived ONLY from the BFF-written mfa_satisfied_at claim (checked for
+        // freshness). Not a ROLE_ prefix, so it never satisfies a hasRole() check
+        // accidentally. The reserved-prefix guard above ensures a forged
+        // permissions:["MFA_SATISFIED"] was already dropped before reaching here.
         if (mfa.enabled() && Roles.isMfaSatisfied(jwt, now, mfa.freshnessWindowMillis())) {
             authorities.add(new SimpleGrantedAuthority(Roles.MFA_SATISFIED));
         }
 
-        // Domain authority — keyed on the cryptographically-validated ISSUER (per-brand
-        // Casdoor => distinct iss). NEVER a user-settable claim. DOMAIN_<x> is a
-        // NON-role authority (no ROLE_ prefix) so it can never satisfy a
-        // hasRole()/route-access role check by accident. A null from the registry
-        // (unknown issuer) defensively maps to "default" rather than emitting
-        // "DOMAIN_null".
+        // 6. Exactly one DOMAIN_<x> authority derived from the validated issuer.
+        // NOT a ROLE_ prefix, so it never satisfies a hasRole() check accidentally.
+        // A null registry or null domain (unknown issuer in multi-brand mode)
+        // defensively maps to "default" rather than emitting "DOMAIN_null".
         String issuer = jwt.getIssuer() == null ? null : jwt.getIssuer().toString();
-        String domain = domainRegistry == null ? DomainRegistry.DEFAULT_DOMAIN : domainRegistry.domainOf(issuer);
+        String domain = domainRegistry == null
+                ? DomainRegistry.DEFAULT_DOMAIN
+                : domainRegistry.domainOf(issuer);
         if (domain == null) domain = DomainRegistry.DEFAULT_DOMAIN;
         authorities.add(new SimpleGrantedAuthority("DOMAIN_" + domain));
 
         return authorities;
     }
 
+    // -------------------------------------------------------------------------
+    // Internal helpers
+    // -------------------------------------------------------------------------
+
+    /**
+     * Extracts the role name string from a {@code roles} claim entry, handling both
+     * the plain string shape ({@code "admin"}) and the role-object shape
+     * ({@code {"name": "admin", ...}}).
+     *
+     * @param item one element from the JWT {@code roles} claim list; may be {@code null}
+     * @return the trimmed role name string, or {@code ""} for unrecognised shapes
+     */
     private static String roleNameOf(Object item) {
         if (item instanceof String s) return s;
         if (item instanceof Map<?, ?> m) {
+            // Role-object shape: {"name": "admin", "displayName": "...", ...}
             Object name = m.get("name");
             if (name instanceof String s && !s.isBlank()) return s;
         }

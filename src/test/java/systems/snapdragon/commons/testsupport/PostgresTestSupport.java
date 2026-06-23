@@ -121,9 +121,9 @@ public abstract class PostgresTestSupport {
         final String adminJdbcUrl = "jdbc:postgresql://"
                 + POSTGRES.getHost() + ":" + POSTGRES.getFirstMappedPort()
                 + "/" + POSTGRES.getDatabaseName();
-        try (Connection connection = DriverManager.getConnection(
+        try (var connection = DriverManager.getConnection(
                 adminJdbcUrl, POSTGRES.getUsername(), POSTGRES.getPassword());
-             Statement statement = connection.createStatement()) {
+             var statement = connection.createStatement()) {
             // dbName is "cmtest_" + an int — no injection surface; quoted for safety.
             statement.executeUpdate("CREATE DATABASE \"" + dbName + "\"");
         } catch (Exception e) {
