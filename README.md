@@ -22,7 +22,7 @@ version:    2.0.0
 packaging:  jar
 ```
 
-Child of `systems.snapdragon:snapdragon-parent:2.0.0` (the metapom), which pins the
+Child of `systems.snapdragon:snapdragon-parent:2.4.0` (the metapom), which pins the
 ecosystem baseline: **Spring Boot 4.0.2 / Spring Cloud 2025.1** on Java.
 
 ## Contents
@@ -30,6 +30,7 @@ ecosystem baseline: **Spring Boot 4.0.2 / Spring Cloud 2025.1** on Java.
 | Class | Package | Role |
 |-------|---------|------|
 | `Roles` | `systems.snapdragon.commons.security` | JWT role / domain / MFA-stamp extraction. |
+| `RoleName` | `systems.snapdragon.commons.security` | closed enum of the four base Casdoor role tokens (`user`/`mod`/`admin`/`superadmin`); fail-closed `fromWire`/`require`/`isBaseRole` with the lowercase on-the-wire value preserved as a live contract. |
 | `CasdoorAuthorities` | `systems.snapdragon.commons.security` | Casdoor JWT → Spring authorities converter (the RESERVED-PREFIX injection guard lives here). |
 | `DomainRegistry` | `systems.snapdragon.commons.security` | issuer-URI → brand/domain map; single-issuer back-compat + multi-brand fail-closed; `knownDomains`/`isKnownDomain` validation. |
 | `PrincipalDomain` | `systems.snapdragon.commons.security` | instance-based, SUPERADMIN-aware per-request tenant scope (was the federation/admin `DomainScope`). |
@@ -82,7 +83,13 @@ authority-string form) become `Roles.isSuperadminNames(...)` / `Roles.domainOfNa
 
 ## Build / publish
 
-`./mvnw verify` compiles and runs the unit tests. CI publishes the jar to the GitLab
+`./mvnw verify` compiles and runs the unit tests. The build also publishes a
+**test-jar** alongside the main jar so consumers can depend on
+`systems.snapdragon:snapdragon-commons:2.0.0:tests` (test scope) and `extends
+PostgresTestSupport` — ONE shared Testcontainers-Postgres base (singleton container,
+fresh database per test class) for the whole org instead of re-copying it per repo.
+
+CI publishes the jar to the GitLab
 Maven Package Registry on the default branch / on a tag via
 `./mvnw deploy -s settings.xml`, authenticating with the GitLab-injected
 `CI_JOB_TOKEN` — **no secret is committed**. (Snapdragon CI is GitLab; there are no
@@ -92,7 +99,7 @@ sibling repos resolve it offline.
 ## Current State
 
 - **At `2.0.0` on the unified ecosystem baseline** — Spring Boot 4.0.2 / Spring Cloud
-  2025.1, child of `snapdragon-parent:2.0.0`. This was bumped from `1.0.0` as part of the
+  2025.1, child of `snapdragon-parent:2.4.0`. This was bumped from `1.0.0` as part of the
   org-wide Boot 4 migration (`snapdragon-federation-api` is the migrated exemplar).
 - **Bottom of the shared-artifact stack.** The new `snapdragon-auth-core:2.0.0` (shared
   account / session / MFA / Casdoor-admin infrastructure) depends on this library;
