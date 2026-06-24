@@ -22,8 +22,9 @@ version:    2.0.0
 packaging:  jar
 ```
 
-Child of `systems.snapdragon:snapdragon-parent:2.4.0` (the metapom), which pins the
-ecosystem baseline: **Spring Boot 4.0.2 / Spring Cloud 2025.1** on Java.
+Child of `systems.snapdragon:snapdragon-parent:2.7.0` (the metapom), which pins the
+ecosystem baseline: **Spring Boot 4.0.7 / Spring Cloud 2025.1.2** on **Java 25 LTS**
+(eclipse-temurin:25), with Testcontainers 2.0.5.
 
 ## Contents
 
@@ -98,9 +99,12 @@ sibling repos resolve it offline.
 
 ## Current State
 
-- **At `2.0.0` on the unified ecosystem baseline** — Spring Boot 4.0.2 / Spring Cloud
-  2025.1, child of `snapdragon-parent:2.4.0`. This was bumped from `1.0.0` as part of the
-  org-wide Boot 4 migration (`snapdragon-federation-api` is the migrated exemplar).
+- **At `2.0.0` on the unified ecosystem baseline** — Spring Boot 4.0.7 / Spring Cloud
+  2025.1.2 on Java 25 LTS, child of `snapdragon-parent:2.7.0`. The artifact version was
+  bumped from `1.0.0` as part of the org-wide Boot 4 migration
+  (`snapdragon-federation-api` is the migrated exemplar); the parent metapom has since
+  advanced through the org-wide dependency-upgrade campaign (Java 21→25 LTS,
+  Testcontainers 2.0.5) to `2.7.0`.
 - **Bottom of the shared-artifact stack.** The new `snapdragon-auth-core:2.0.0` (shared
   account / session / MFA / Casdoor-admin infrastructure) depends on this library;
   `snapdragon-auth-core` is in turn consumed by `snapdragon-user-bff-api` and
