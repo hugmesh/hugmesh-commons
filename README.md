@@ -18,7 +18,7 @@ classes below.
 ```
 groupId:    systems.snapdragon
 artifactId: snapdragon-commons
-version:    2.0.0
+version:    2.7.0
 packaging:  jar
 ```
 
@@ -86,7 +86,7 @@ authority-string form) become `Roles.isSuperadminNames(...)` / `Roles.domainOfNa
 
 `./mvnw verify` compiles and runs the unit tests. The build also publishes a
 **test-jar** alongside the main jar so consumers can depend on
-`systems.snapdragon:snapdragon-commons:2.0.0:tests` (test scope) and `extends
+`systems.snapdragon:snapdragon-commons:2.7.0:tests` (test scope) and `extends
 PostgresTestSupport` — ONE shared Testcontainers-Postgres base (singleton container,
 fresh database per test class) for the whole org instead of re-copying it per repo.
 
@@ -99,7 +99,7 @@ sibling repos resolve it offline.
 
 ## Current State
 
-- **At `2.0.0` on the unified ecosystem baseline** — Spring Boot 4.0.7 / Spring Cloud
+- **At `2.7.0` on the unified ecosystem baseline** — Spring Boot 4.0.7 / Spring Cloud
   2025.1.2 on Java 25 LTS, child of `snapdragon-parent:2.7.0`. The artifact version was
   bumped from `1.0.0` as part of the org-wide Boot 4 migration
   (`snapdragon-federation-api` is the migrated exemplar); the parent metapom has since
