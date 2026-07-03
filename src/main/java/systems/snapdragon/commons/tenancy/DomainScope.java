@@ -46,10 +46,10 @@ package systems.snapdragon.commons.tenancy;
  *
  * <p>Used in raw-SQL repository methods in:
  * <ul>
- *   <li>{@code snapdragon-user-bff} — user-profile / preferences
+ *   <li>{@code snapdragon-user-bff-api} — user-profile / preferences
  *       queries</li>
- *   <li>{@code snapdragon-owncast-bff} — streaming metadata queries</li>
- *   <li>{@code snapdragon-forum-bff} — forum-post / moderation
+ *   <li>{@code snapdragon-owncast-bff-api} — streaming metadata queries</li>
+ *   <li>{@code snapdragon-forum-bff-api} — forum-post / moderation
  *       queries</li>
  * </ul>
  *

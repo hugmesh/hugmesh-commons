@@ -48,6 +48,12 @@ import org.testcontainers.utility.DockerImageName;
  *   @Override protected String jsonTypeOverride() { return "jsonb"; }
  * }</pre>
  */
+// this-escape: the instance initializer below deliberately calls the overridable
+// jsonTypeOverride() before any concrete subclass's own field initializers / constructor
+// body have run. This is safe by contract (see jsonTypeOverride() javadoc): every override
+// across the org returns a fixed string literal and reads no instance state, so a
+// partially-initialized subclass field is never observed.
+@SuppressWarnings("this-escape")
 public abstract class PostgresTestSupport {
 
     /**
@@ -83,6 +89,11 @@ public abstract class PostgresTestSupport {
      * Liquibase {@code ${json.type}} substitution. Defaults to {@code "text"} so
      * jsonb columns stay String-mappable; a repo whose entities map true jsonb can
      * override to return {@code "jsonb"}.
+     *
+     * <p><strong>Contract:</strong> overrides MUST return a fixed string literal and
+     * must NOT read any instance field — this method is invoked from an instance
+     * initializer block, before the concrete subclass's own field initializers and
+     * constructor body have run.
      */
     protected String jsonTypeOverride() {
         return "text";

@@ -21,7 +21,7 @@ class ApiExceptionTest {
         assertThat(ApiException.conflict("f").status()).isEqualTo(HttpStatus.CONFLICT);
         assertThat(ApiException.badGateway("g").status()).isEqualTo(HttpStatus.BAD_GATEWAY);
         assertThat(ApiException.serviceUnavailable("h").status()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
-        assertThat(ApiException.unprocessable("i").status()).isEqualTo(HttpStatus.UNPROCESSABLE_ENTITY);
+        assertThat(ApiException.unprocessable("i").status()).isEqualTo(HttpStatus.UNPROCESSABLE_CONTENT);
         assertThat(ApiException.forbidden("denied").getMessage()).isEqualTo("denied");
     }
 }

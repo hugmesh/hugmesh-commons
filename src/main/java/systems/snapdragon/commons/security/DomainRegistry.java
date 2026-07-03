@@ -59,11 +59,11 @@ import java.util.Set;
  *   <li>{@code snapdragon-admin-bff-api} — domain resolution for all
  *       admin operations</li>
  *   <li>{@code snapdragon-federation-api} — manifest domain scoping</li>
- *   <li>{@code snapdragon-user-bff} — user-profile / preferences domain
+ *   <li>{@code snapdragon-user-bff-api} — user-profile / preferences domain
  *       scoping</li>
- *   <li>{@code snapdragon-owncast-bff} — streaming metadata domain
+ *   <li>{@code snapdragon-owncast-bff-api} — streaming metadata domain
  *       scoping</li>
- *   <li>{@code snapdragon-forum-bff} — forum domain scoping</li>
+ *   <li>{@code snapdragon-forum-bff-api} — forum domain scoping</li>
  *   <li>{@link TenancyResourceServerConfig} — multi-issuer decoder
  *       allowlist</li>
  *   <li>{@link CasdoorAuthorities} — {@code DOMAIN_<x>} authority

@@ -28,10 +28,10 @@ import org.springframework.http.HttpStatus;
  *       checks</li>
  *   <li>{@code snapdragon-federation-api} — federation controller session
  *       checks</li>
- *   <li>{@code snapdragon-user-bff} — user console session checks</li>
- *   <li>{@code snapdragon-owncast-bff} — streaming service session
+ *   <li>{@code snapdragon-user-bff-api} — user console session checks</li>
+ *   <li>{@code snapdragon-owncast-bff-api} — streaming service session
  *       checks</li>
- *   <li>{@code snapdragon-forum-bff} — forum BFF session checks</li>
+ *   <li>{@code snapdragon-forum-bff-api} — forum BFF session checks</li>
  * </ul>
  *
  * <h2>Usage pattern</h2>
@@ -53,6 +53,8 @@ import org.springframework.http.HttpStatus;
  * @since snapdragon-commons initial extraction from per-repo copies
  */
 public class ApiException extends RuntimeException {
+
+    private static final long serialVersionUID = 1L;
 
     /** The HTTP status code returned to the client. */
     private final HttpStatus status;
@@ -174,7 +176,7 @@ public class ApiException extends RuntimeException {
     }
 
     /**
-     * Creates a {@code 422 Unprocessable Entity} exception — the request
+     * Creates a {@code 422 Unprocessable Content} exception — the request
      * was well-formed but failed semantic validation (e.g. business-rule
      * violations that aren't covered by {@code 400}).
      *
@@ -182,6 +184,6 @@ public class ApiException extends RuntimeException {
      * @return a new {@link ApiException} with status {@code 422}
      */
     public static ApiException unprocessable(final String msg) {
-        return new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, msg);
+        return new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, msg);
     }
 }

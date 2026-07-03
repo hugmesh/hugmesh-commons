@@ -1,6 +1,6 @@
 package systems.snapdragon.commons.security;
 
-import org.springframework.lang.NonNull;
+import org.jspecify.annotations.NonNull;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.jwt.Jwt;
 
@@ -68,10 +68,10 @@ import org.springframework.security.oauth2.jwt.Jwt;
  *       domain</li>
  *   <li>{@code snapdragon-federation-api} — manifest render domain
  *       pinning</li>
- *   <li>{@code snapdragon-user-bff} — user-profile / preferences
+ *   <li>{@code snapdragon-user-bff-api} — user-profile / preferences
  *       scoping</li>
- *   <li>{@code snapdragon-owncast-bff} — streaming metadata scoping</li>
- *   <li>{@code snapdragon-forum-bff} — forum moderation scoping</li>
+ *   <li>{@code snapdragon-owncast-bff-api} — streaming metadata scoping</li>
+ *   <li>{@code snapdragon-forum-bff-api} — forum moderation scoping</li>
  * </ul>
  *
  * @see DomainRegistry

@@ -93,9 +93,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * <ul>
  *   <li>{@code snapdragon-admin-bff-api} — multi-issuer swap-in</li>
  *   <li>{@code snapdragon-federation-api} — multi-issuer swap-in</li>
- *   <li>{@code snapdragon-user-bff} — multi-issuer swap-in</li>
- *   <li>{@code snapdragon-owncast-bff} — multi-issuer swap-in</li>
- *   <li>{@code snapdragon-forum-bff} — multi-issuer swap-in</li>
+ *   <li>{@code snapdragon-user-bff-api} — multi-issuer swap-in</li>
+ *   <li>{@code snapdragon-owncast-bff-api} — multi-issuer swap-in</li>
+ *   <li>{@code snapdragon-forum-bff-api} — multi-issuer swap-in</li>
  * </ul>
  *
  * @see DomainRegistry

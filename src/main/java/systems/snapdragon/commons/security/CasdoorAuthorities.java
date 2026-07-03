@@ -61,11 +61,11 @@ import java.util.Map;
  *       (single-issuer path)</li>
  *   <li>{@code snapdragon-federation-api} {@code SecurityConfig}
  *       (single-issuer path)</li>
- *   <li>{@code snapdragon-user-bff} {@code SecurityConfig}
+ *   <li>{@code snapdragon-user-bff-api} {@code SecurityConfig}
  *       (single-issuer path)</li>
- *   <li>{@code snapdragon-owncast-bff} {@code SecurityConfig}
+ *   <li>{@code snapdragon-owncast-bff-api} {@code SecurityConfig}
  *       (single-issuer path)</li>
- *   <li>{@code snapdragon-forum-bff} {@code SecurityConfig}
+ *   <li>{@code snapdragon-forum-bff-api} {@code SecurityConfig}
  *       (single-issuer path)</li>
  *   <li>{@link TenancyResourceServerConfig} (multi-issuer path — same
  *       converter)</li>

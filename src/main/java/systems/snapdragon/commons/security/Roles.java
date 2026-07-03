@@ -20,8 +20,8 @@ import java.util.Map;
  * {@link Jwt} or the already-converted {@link GrantedAuthority}
  * collection emitted by {@link CasdoorAuthorities}. Earlier per-repo
  * copies were byte-identical; {@code snapdragon-federation-api},
- * {@code snapdragon-admin-bff-api}, {@code snapdragon-user-bff}, and
- * {@code snapdragon-owncast-bff} all carried the same logic — this
+ * {@code snapdragon-admin-bff-api}, {@code snapdragon-user-bff-api}, and
+ * {@code snapdragon-owncast-bff-api} all carried the same logic — this
  * class is the single canonical home.
  *
  * <h2>Casdoor roles claim shape</h2>
@@ -60,9 +60,9 @@ import java.util.Map;
  *       role checks</li>
  *   <li>{@code snapdragon-federation-api} — manifest read path role and
  *       domain checks</li>
- *   <li>{@code snapdragon-user-bff} — user BFF role checks</li>
- *   <li>{@code snapdragon-owncast-bff} — streaming BFF role checks</li>
- *   <li>{@code snapdragon-forum-bff} — forum BFF role checks</li>
+ *   <li>{@code snapdragon-user-bff-api} — user BFF role checks</li>
+ *   <li>{@code snapdragon-owncast-bff-api} — streaming BFF role checks</li>
+ *   <li>{@code snapdragon-forum-bff-api} — forum BFF role checks</li>
  *   <li>{@link CasdoorAuthorities} — MFA freshness check</li>
  *   <li>{@link PrincipalDomain} — SUPERADMIN and domain resolution</li>
  * </ul>
