@@ -185,27 +185,30 @@ repository. Snapdragon CI runs on GitLab; there are no GitHub Actions in this re
   `snapdragon-auth-core` is in turn consumed by `snapdragon-user-bff-api` and
   `snapdragon-admin-bff-api`. All reactive BFFs depend on commons for the
   security / tenancy / config / web primitives above.
-- **Auth-model alignment.** The current SSO design keeps the Casdoor JWT entirely
-  server-side. `login-ui` drives the OIDC authorization-code (PKCE) flow; `user-bff`
-  performs the server-side code→token exchange and holds the JWT in server-side session
-  storage. The browser receives only an opaque `bff_`-prefixed session cookie and never
-  sees the Casdoor JWT directly. At the gateway, a pre-security exchange filter resolves
-  the `bff_` cookie to the internal custody JWT, so JWT validation, role extraction, and
-  domain resolution — all implemented in this library — run without modification.
+- **Auth-model alignment.** The current native-login design keeps the Casdoor JWT
+  entirely server-side and Casdoor internal-only — it never redirects the browser.
+  `login-ui` renders a first-party login form that POSTs credentials straight to
+  `/bff/login` (via the gateway); `user-bff` runs the entire OIDC/PKCE handshake with
+  Casdoor itself (generating the PKCE verifier/challenge and state, hitting Casdoor's
+  internal `/api/login`, and exchanging the code for a JWT), then holds that JWT in
+  server-side session storage. The browser never sees a Casdoor URL, authorization code,
+  or JWT — it receives only an opaque `bff_`-prefixed session cookie. At the gateway, a
+  pre-security exchange filter resolves the `bff_` cookie to the internal custody JWT, so
+  JWT validation, role extraction, and domain resolution — all implemented in this
+  library — run without modification.
 
   ```mermaid
   sequenceDiagram
       participant Browser
       participant login-ui
-      participant user-bff
       participant gateway
+      participant user-bff
       participant Casdoor
 
-      Browser->>login-ui: initiate login
-      login-ui->>Casdoor: OIDC PKCE authorization request
-      Casdoor-->>login-ui: authorization code
-      login-ui->>user-bff: POST /bff/login (code)
-      user-bff->>Casdoor: code → JWT exchange
+      Browser->>login-ui: fill native login form
+      login-ui->>gateway: POST /bff/login (credentials)
+      gateway->>user-bff: route to user-bff (permitAll)
+      user-bff->>Casdoor: internal /api/login + PKCE code exchange
       Casdoor-->>user-bff: Casdoor JWT (held server-side)
       user-bff-->>Browser: Set-Cookie: bff_<opaque>
       Browser->>gateway: API request + bff_ cookie
