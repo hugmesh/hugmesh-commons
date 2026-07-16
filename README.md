@@ -4,19 +4,23 @@ The shared, **canonical** Snapdragon security / tenancy / config / web building
 blocks. The classes in this library were previously duplicated — with only package names
 and access modifiers changed — into every reactive BFF (`snapdragon-federation-api`,
 `snapdragon-admin-bff-api`, `snapdragon-user-bff-api`, `snapdragon-owncast-bff-api`,
-…). This library is the single source of truth; the per-repo copies are replaced by a
-compile dependency on it.
+…) and the gateway. This library is the single source of truth; the per-repo copies are
+replaced by a compile dependency on it.
 
 It sits at the bottom of the shared-artifact stack. `snapdragon-auth-core` — the
 shared account / session / MFA / Casdoor-admin infrastructure consumed by
 `snapdragon-user-bff-api` and `snapdragon-admin-bff-api` — depends on **this** library
 for its security and tenancy primitives. Every reactive service also depends on it
-directly for the security / tenancy / web classes described below.
+directly for the security / tenancy / web classes described below — as does the
+gateway's JWT resource server, which uses `CasdoorAuthorities` / `Roles` /
+`DomainRegistry` from this library for JWT validation, role extraction, and domain
+resolution (see the native-login sequence diagram under [Current State](#current-state)).
 
 ```mermaid
 flowchart TB
     commons["snapdragon-commons\n(this library)\nsecurity · tenancy · web"]
     auth_core["snapdragon-auth-core\naccount · session · MFA\nCasdoor-admin infra"]
+    gateway["gateway\n(JWT resource server)"]
     federation["snapdragon-federation-api"]
     user_bff["snapdragon-user-bff-api"]
     admin_bff["snapdragon-admin-bff-api"]
@@ -24,6 +28,7 @@ flowchart TB
     forum_bff["snapdragon-forum-bff-api"]
 
     commons --> auth_core
+    commons --> gateway
     commons --> federation
     commons --> owncast_bff
     commons --> forum_bff
@@ -36,7 +41,7 @@ flowchart TB
 ```
 groupId:    systems.snapdragon
 artifactId: snapdragon-commons
-version:    2.7.0
+version:    2.0.0
 packaging:  jar
 ```
 
@@ -132,7 +137,7 @@ Calls that pass a `Collection<GrantedAuthority>` use the existing overloads unch
 Alongside the main jar, the `maven-jar-plugin` `test-jar` goal publishes
 `systems.snapdragon.commons.testsupport.PostgresTestSupport`
 (`src/test/java/systems/snapdragon/commons/testsupport/PostgresTestSupport.java`) as
-`systems.snapdragon:snapdragon-commons:2.7.0:tests` (test scope). Consumers extend it
+`systems.snapdragon:snapdragon-commons:2.0.0:tests` (test scope). Consumers extend it
 to get ONE shared Testcontainers-Postgres base for the whole org instead of
 re-copying the container/Liquibase/R2DBC wiring per repo:
 
@@ -174,17 +179,20 @@ repository. Snapdragon CI runs on GitLab; there are no GitHub Actions in this re
 
 ## Current State
 
-- **At `2.7.0` on the unified ecosystem baseline** — Spring Boot 4.0.7 / Spring Cloud
-  2025.1.2 on Java 25 LTS, child of `snapdragon-parent:2.7.0`. The artifact version was
-  bumped from `1.0.0` as part of the org-wide Boot 4 migration
+- **At `2.0.0` on the unified ecosystem baseline** — Spring Boot 4.0.7 / Spring Cloud
+  2025.1.2 on Java 25 LTS, child of `snapdragon-parent:2.7.0`. The artifact's own
+  version was bumped from `1.0.0` to `2.0.0` as part of the org-wide Boot 4 migration
   (`snapdragon-federation-api` is the migrated exemplar); the parent metapom has since
-  advanced through the org-wide dependency-upgrade campaign (Java 21→25 LTS,
-  Testcontainers 2.0.5) to `2.7.0`.
-- **Bottom of the shared-artifact stack.** The new `snapdragon-auth-core:2.0.0` (shared
+  advanced independently through the org-wide dependency-upgrade campaign (Java 21→25
+  LTS, Testcontainers 2.0.5) to `2.7.0`. These are two different version numbers
+  (this artifact's own `2.0.0` vs. the inherited `snapdragon-parent:2.7.0`) and are not
+  expected to track each other — see [Coordinates](#coordinates) and `pom.xml`.
+- **Bottom of the shared-artifact stack.** `snapdragon-auth-core` (the shared
   account / session / MFA / Casdoor-admin infrastructure) depends on this library;
   `snapdragon-auth-core` is in turn consumed by `snapdragon-user-bff-api` and
-  `snapdragon-admin-bff-api`. All reactive BFFs depend on commons for the
-  security / tenancy / config / web primitives above.
+  `snapdragon-admin-bff-api`. All reactive BFFs, and the gateway's resource-server
+  config, depend on commons directly for the security / tenancy / config / web
+  primitives above.
 - **Auth-model alignment.** The current native-login design keeps the Casdoor JWT
   entirely server-side and Casdoor internal-only — it never redirects the browser.
   `login-ui` renders a first-party login form that POSTs credentials straight to
