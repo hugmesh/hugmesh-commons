@@ -60,6 +60,80 @@ class DomainRegistryTest {
         }
     }
 
+    /**
+     * The malformed-{@code app.tenancy.issuers} parse branches — the
+     * {@code eq <= 0} skip, the blank-issuer/blank-domain skip, and the
+     * separator-less value. These are load-bearing for current production
+     * behaviour: a value that CONTAINS {@code '='} but parses to ZERO valid
+     * pairs still activates {@link systems.snapdragon.commons.config
+     * .TenancyResourceServerConfig}'s {@code @ConditionalOnExpression}
+     * ({@code .contains('=')}) while leaving this registry EMPTY.
+     */
+    @Nested
+    class MalformedIssuersCsv {
+
+        @Test
+        void leadingSeparator_isSkipped_leavingRegistryEmpty() {
+            // eq == 0 -> the `eq <= 0` skip fires. Bean-active, map empty.
+            DomainRegistry r = new DomainRegistry("", "=brand");
+            assertThat(r.trustedIssuers()).isEmpty();
+            assertThat(r.knownDomains()).isEmpty();
+            assertThat(r.isMultiIssuer()).isFalse();
+        }
+
+        @Test
+        void blankDomain_isSkipped_leavingRegistryEmpty() {
+            // sanitize("") -> "" -> the !dom.isEmpty() guard skips the pair.
+            DomainRegistry r = new DomainRegistry("", "https://iss=");
+            assertThat(r.trustedIssuers()).isEmpty();
+            assertThat(r.isMultiIssuer()).isFalse();
+        }
+
+        @Test
+        void noSeparatorAtAll_isSkipped_leavingRegistryEmpty() {
+            // eq == -1 -> skipped. (This value would ALSO leave the
+            // TenancyResourceServerConfig bean inactive: no '=' to match.)
+            DomainRegistry r = new DomainRegistry("", "https://iss-without-eq");
+            assertThat(r.trustedIssuers()).isEmpty();
+            assertThat(r.isMultiIssuer()).isFalse();
+        }
+
+        @Test
+        void malformedCsv_stillSeedsTheBackCompatIssuerWhenOneIsConfigured() {
+            // The zero-valid-pairs path must still fall through to the
+            // single-issuer seed — this is the back-compat contract.
+            DomainRegistry r = new DomainRegistry("https://casdoor:8000", "=brand");
+            assertThat(r.trustedIssuers()).containsExactly("https://casdoor:8000");
+            assertThat(r.domainOf("https://casdoor:8000"))
+                    .isEqualTo(DomainRegistry.DEFAULT_DOMAIN);
+            assertThat(r.isMultiIssuer()).isFalse();
+        }
+
+        @Test
+        void mixedCsv_keepsOnlyTheValidPairs() {
+            DomainRegistry r = new DomainRegistry(
+                    "", "=skipped,https://good.example=good,https://blank=,bare");
+            assertThat(r.trustedIssuers()).containsExactly("https://good.example");
+            assertThat(r.domainOf("https://good.example")).isEqualTo("good");
+            // Exactly one valid pair => NOT multi-issuer.
+            assertThat(r.isMultiIssuer()).isFalse();
+        }
+
+        @Test
+        void emptyRegistry_failsOpenToDefault_legacySingleTenantContract() {
+            // PINNED LEGACY BEHAVIOUR, not an endorsement. domainOf short-
+            // circuits to "default" on an empty registry WITHOUT inspecting
+            // its argument, so isTrusted answers true for ANY issuer. This
+            // default is load-bearing for legacy single-tenant clusters.
+            // TenancyResourceServerConfig therefore gates on strict
+            // trustedIssuers() containment, never on isTrusted().
+            DomainRegistry r = new DomainRegistry("", "=brand");
+            assertThat(r.domainOf("https://evil.attacker.tld"))
+                    .isEqualTo(DomainRegistry.DEFAULT_DOMAIN);
+            assertThat(r.isTrusted("https://evil.attacker.tld")).isTrue();
+        }
+    }
+
     @Nested
     class KnownDomainValidation {
 

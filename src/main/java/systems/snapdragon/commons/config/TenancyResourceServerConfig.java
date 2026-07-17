@@ -64,12 +64,22 @@ import java.util.concurrent.ConcurrentHashMap;
  * <h2>Fail-closed on unknown issuers</h2>
  *
  * <p>The resolver's allowlist is exactly
- * {@link DomainRegistry#trustedIssuers()}. A token whose {@code iss} is
- * not in that set gets no authentication manager and is rejected with
- * {@code 401} before any authority is emitted. An unknown issuer returns
- * {@code Mono.empty()} from the per-issuer resolver, which
+ * {@link DomainRegistry#trustedIssuers()}, tested by strict membership of
+ * a NON-EMPTY set. A token whose {@code iss} is not in that set gets no
+ * authentication manager and is rejected with {@code 401} before any
+ * authority is emitted. An unknown issuer returns {@code Mono.empty()}
+ * from the per-issuer resolver, which
  * {@link JwtIssuerReactiveAuthenticationManagerResolver} translates to
- * {@code 401}.
+ * {@code 401}. An EMPTY allowlist denies every issuer.
+ *
+ * <p>This gate deliberately does NOT delegate to
+ * {@link DomainRegistry#isTrusted(String)}: that method inherits
+ * {@link DomainRegistry#domainOf(String)}'s legacy single-tenant
+ * fail-open and answers {@code true} for ANY issuer on an empty registry.
+ * See {@code trustedIssuerOrNull} for the full rationale, and for why the
+ * empty-registry-with-active-bean state is genuinely reachable. This class
+ * fails closed on its own — not by grace of each consumer remembering to
+ * gate its swap-in on {@link DomainRegistry#isMultiIssuer()}.
  *
  * <h2>Byte-identical authority output</h2>
  *
@@ -230,15 +240,7 @@ public class TenancyResourceServerConfig {
         // a manager. An unknown iss yields Mono.empty() -> 401
         // (fail-closed).
         ReactiveAuthenticationManagerResolver<String> byIssuerResolver =
-                issuer -> {
-                    if (issuer == null
-                            || !domainRegistry.isTrusted(issuer)) {
-                        return Mono.empty();
-                    }
-                    return Mono.just(
-                            byIssuer.computeIfAbsent(
-                                    issuer, this::managerForIssuer));
-                };
+                byIssuerResolver(byIssuer);
 
         var delegate =
                 new JwtIssuerReactiveAuthenticationManagerResolver(
@@ -249,6 +251,103 @@ public class TenancyResourceServerConfig {
         warmIssuersIfEnabled(byIssuer);
 
         return delegate::resolve;
+    }
+
+    // -----------------------------------------------------------------------
+    // Per-issuer allowlist resolution (fail-closed)
+    // -----------------------------------------------------------------------
+
+    /**
+     * Builds the per-issuer resolver that maps a token's {@code iss} to its
+     * cached {@link ReactiveAuthenticationManager}, or {@link Mono#empty()}
+     * when the issuer is not on the allowlist (which
+     * {@link JwtIssuerReactiveAuthenticationManagerResolver} turns into a
+     * {@code 401}).
+     *
+     * <p>Package-private rather than inlined so the fail-closed contract can
+     * be unit-tested directly, without a Spring context or a synthetic
+     * {@link ServerWebExchange}.
+     *
+     * @param byIssuer the shared issuer-to-manager cache, keyed by the
+     *                 CANONICAL allowlist element (see
+     *                 {@link #trustedIssuerOrNull(String)})
+     * @return the per-issuer resolver; never {@code null}
+     */
+    ReactiveAuthenticationManagerResolver<String> byIssuerResolver(
+            final Map<String, ReactiveAuthenticationManager> byIssuer) {
+        return issuer -> {
+            String iss = trustedIssuerOrNull(issuer);
+            if (iss == null) {
+                return Mono.empty();
+            }
+            return Mono.just(
+                    byIssuer.computeIfAbsent(iss, this::managerForIssuer));
+        };
+    }
+
+    /**
+     * Resolves {@code issuer} to its canonical entry in the trusted-issuer
+     * allowlist, or {@code null} when it is not trusted.
+     *
+     * <h3>Why strict containment and not {@link DomainRegistry#isTrusted}</h3>
+     *
+     * <p>This gate deliberately tests strict membership of a NON-EMPTY
+     * {@link DomainRegistry#trustedIssuers()} set rather than delegating to
+     * {@link DomainRegistry#isTrusted(String)}. The two are NOT equivalent on
+     * an empty registry: {@code isTrusted} delegates to
+     * {@link DomainRegistry#domainOf(String)}, which short-circuits to the
+     * legacy single-tenant {@code "default"} WITHOUT inspecting its argument
+     * when the registry is empty — so {@code isTrusted(anything)} answers
+     * {@code true} for any string at all, including an attacker-chosen issuer.
+     * Reaching {@link #decoderForIssuer(String)} with an attacker-chosen
+     * {@code iss} would mean OIDC discovery against an attacker-controlled
+     * URL. This method therefore denies outright on an empty allowlist, which
+     * also makes the code match this class's documented contract ("the
+     * resolver's allowlist is exactly {@code DomainRegistry.trustedIssuers()}").
+     *
+     * <p>That empty-registry state is genuinely REACHABLE, not hypothetical:
+     * {@code app.tenancy.issuers=&#61;brand} satisfies this class's
+     * {@code @ConditionalOnExpression} {@code .contains('=')} guard (so the
+     * bean is ACTIVE) yet parses to zero valid pairs (the {@code eq <= 0}
+     * skip), and with no {@code jwt.issuer-uri} to seed the back-compat entry
+     * the map stays empty. Today no consumer installs this resolver in that
+     * state because each one independently gates its swap-in on
+     * {@link DomainRegistry#isMultiIssuer()} (false for an empty map) — but
+     * that is a gate in a DIFFERENT repository. This class fails closed on its
+     * own rather than by grace of consumer discipline.
+     *
+     * <p>Note this does NOT change {@link DomainRegistry#domainOf(String)}'s
+     * legacy fail-open, which stays load-bearing for legacy single-tenant
+     * clusters; it only stops THIS resolver from depending on it.
+     *
+     * @param issuer the raw {@code iss} claim from the inbound token (may be
+     *               {@code null})
+     * @return the canonical allowlist element equal to the normalised
+     *         {@code issuer}, or {@code null} when the allowlist is empty or
+     *         does not contain it
+     */
+    private String trustedIssuerOrNull(final String issuer) {
+        if (issuer == null) {
+            return null;
+        }
+        Set<String> trusted = domainRegistry.trustedIssuers();
+        // Empty (or absent) allowlist: deny. Never fall back to a default.
+        if (trusted == null || trusted.isEmpty()) {
+            return null;
+        }
+        String candidate = trimSlash(issuer);
+        if (candidate.isEmpty()) {
+            return null;
+        }
+        for (String t : trusted) {
+            if (t != null && t.equals(candidate)) {
+                // Return the SET's element, not the caller's string, so the
+                // cache key is canonical: "https://x" and "https://x/" share
+                // one manager instead of building a duplicate per variant.
+                return t;
+            }
+        }
+        return null;
     }
 
     // -----------------------------------------------------------------------
