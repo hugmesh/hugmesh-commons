@@ -1,7 +1,7 @@
-# snapdragon-commons — compile, test, and publish the shared library jar to the
+# hugmesh-commons — compile, test, and publish the shared library jar to the
 # GitLab Maven Package Registry.
 #
-# Resolves its parent (snapdragon-parent) from the same registry. On the default
+# Resolves its parent (hugmesh-parent) from the same registry. On the default
 # branch / on a tag the jar is deployed so the BFF child poms can consume it.
 
 stages:

@@ -1,15 +1,15 @@
-# snapdragon-commons
+# hugmesh-commons
 
-The shared, **canonical** Snapdragon security / tenancy / config / web building
+The shared, **canonical** HugMesh security / tenancy / config / web building
 blocks. The classes in this library were previously duplicated — with only package names
-and access modifiers changed — into every reactive BFF (`snapdragon-federation-api`,
-`snapdragon-admin-bff-api`, `snapdragon-user-bff-api`, `snapdragon-owncast-bff-api`,
+and access modifiers changed — into every reactive BFF (`hugmesh-federation-api`,
+`hugmesh-admin-bff-api`, `hugmesh-user-bff-api`, `hugmesh-owncast-bff-api`,
 …) and the gateway. This library is the single source of truth; the per-repo copies are
 replaced by a compile dependency on it.
 
-It sits at the bottom of the shared-artifact stack. `snapdragon-auth-core` — the
+It sits at the bottom of the shared-artifact stack. `hugmesh-auth-core` — the
 shared account / session / MFA / Casdoor-admin infrastructure consumed by
-`snapdragon-user-bff-api` and `snapdragon-admin-bff-api` — depends on **this** library
+`hugmesh-user-bff-api` and `hugmesh-admin-bff-api` — depends on **this** library
 for its security and tenancy primitives. Every reactive service also depends on it
 directly for the security / tenancy / web classes described below — as does the
 gateway's JWT resource server, which uses `CasdoorAuthorities` / `Roles` /
@@ -18,14 +18,14 @@ resolution (see the native-login sequence diagram under [Current State](#current
 
 ```mermaid
 flowchart TB
-    commons["snapdragon-commons\n(this library)\nsecurity · tenancy · web"]
-    auth_core["snapdragon-auth-core\naccount · session · MFA\nCasdoor-admin infra"]
+    commons["hugmesh-commons\n(this library)\nsecurity · tenancy · web"]
+    auth_core["hugmesh-auth-core\naccount · session · MFA\nCasdoor-admin infra"]
     gateway["gateway\n(JWT resource server)"]
-    federation["snapdragon-federation-api"]
-    user_bff["snapdragon-user-bff-api"]
-    admin_bff["snapdragon-admin-bff-api"]
-    owncast_bff["snapdragon-owncast-bff-api"]
-    forum_bff["snapdragon-forum-bff-api"]
+    federation["hugmesh-federation-api"]
+    user_bff["hugmesh-user-bff-api"]
+    admin_bff["hugmesh-admin-bff-api"]
+    owncast_bff["hugmesh-owncast-bff-api"]
+    forum_bff["hugmesh-forum-bff-api"]
 
     commons --> auth_core
     commons --> gateway
@@ -39,13 +39,13 @@ flowchart TB
 ## Coordinates
 
 ```
-groupId:    systems.snapdragon
-artifactId: snapdragon-commons
+groupId:    systems.hugmesh
+artifactId: hugmesh-commons
 version:    2.0.0
 packaging:  jar
 ```
 
-Child of `systems.snapdragon:snapdragon-parent:2.7.0` (the metapom), which pins the
+Child of `systems.hugmesh:hugmesh-parent:2.7.0` (the metapom), which pins the
 ecosystem baseline: **Spring Boot 4.0.7 / Spring Cloud 2025.1.2** on **Java 25 LTS**
 (eclipse-temurin:25), with Testcontainers 2.0.5.
 
@@ -53,14 +53,14 @@ ecosystem baseline: **Spring Boot 4.0.7 / Spring Cloud 2025.1.2** on **Java 25 L
 
 | Class | Package | Role |
 |-------|---------|------|
-| `Roles` | `systems.snapdragon.commons.security` | JWT role / domain / MFA-stamp extraction. |
-| `RoleName` | `systems.snapdragon.commons.security` | closed enum of the four base Casdoor role tokens (`user`/`mod`/`admin`/`superadmin`); fail-closed `fromWire`/`require`/`isBaseRole` with the lowercase on-the-wire value preserved as a live contract. |
-| `CasdoorAuthorities` | `systems.snapdragon.commons.security` | Casdoor JWT → Spring authorities converter (the RESERVED-PREFIX injection guard lives here). |
-| `DomainRegistry` | `systems.snapdragon.commons.security` | issuer-URI → brand/domain map; single-issuer back-compat + multi-brand fail-closed; `knownDomains`/`isKnownDomain` validation. |
-| `PrincipalDomain` | `systems.snapdragon.commons.security` | instance-based, SUPERADMIN-aware per-request tenant scope (was the federation/admin `DomainScope`). |
-| `DomainScope` | `systems.snapdragon.commons.tenancy` | static SQL-predicate utility (`andPredicate`/`isUnscoped`) for per-domain repositories (was the user/owncast `DomainScope`). |
-| `TenancyResourceServerConfig` | `systems.snapdragon.commons.config` | config-gated, backward-compatible multi-issuer (per-brand Casdoor) resource-server wiring. |
-| `ApiException` | `systems.snapdragon.commons.web` | the BFF `{"error": msg}` exception with the full union of HTTP-status factories. |
+| `Roles` | `systems.hugmesh.commons.security` | JWT role / domain / MFA-stamp extraction. |
+| `RoleName` | `systems.hugmesh.commons.security` | closed enum of the four base Casdoor role tokens (`user`/`mod`/`admin`/`superadmin`); fail-closed `fromWire`/`require`/`isBaseRole` with the lowercase on-the-wire value preserved as a live contract. |
+| `CasdoorAuthorities` | `systems.hugmesh.commons.security` | Casdoor JWT → Spring authorities converter (the RESERVED-PREFIX injection guard lives here). |
+| `DomainRegistry` | `systems.hugmesh.commons.security` | issuer-URI → brand/domain map; single-issuer back-compat + multi-brand fail-closed; `knownDomains`/`isKnownDomain` validation. |
+| `PrincipalDomain` | `systems.hugmesh.commons.security` | instance-based, SUPERADMIN-aware per-request tenant scope (was the federation/admin `DomainScope`). |
+| `DomainScope` | `systems.hugmesh.commons.tenancy` | static SQL-predicate utility (`andPredicate`/`isUnscoped`) for per-domain repositories (was the user/owncast `DomainScope`). |
+| `TenancyResourceServerConfig` | `systems.hugmesh.commons.config` | config-gated, backward-compatible multi-issuer (per-brand Casdoor) resource-server wiring. |
+| `ApiException` | `systems.hugmesh.commons.web` | the BFF `{"error": msg}` exception with the full union of HTTP-status factories. |
 
 ## Preserved security behaviours
 
@@ -101,24 +101,24 @@ per-repo because it must construct the per-repo `SecurityConfig`.
 
 ```xml
 <dependency>
-  <groupId>systems.snapdragon</groupId>
-  <artifactId>snapdragon-commons</artifactId>
-  <!-- version managed by snapdragon-parent -->
+  <groupId>systems.hugmesh</groupId>
+  <artifactId>hugmesh-commons</artifactId>
+  <!-- version managed by hugmesh-parent -->
 </dependency>
 ```
 
 Then delete the repo-local copies of the classes above and update the import
 statements. The package root changes from the repo-specific prefix to
-`systems.snapdragon.commons.*`:
+`systems.hugmesh.commons.*`:
 
 ```
 # Before (example from federation-api)
-import systems.snapdragon.federation.security.Roles;
-import systems.snapdragon.federation.security.DomainRegistry;
+import systems.hugmesh.federation.security.Roles;
+import systems.hugmesh.federation.security.DomainRegistry;
 
 # After
-import systems.snapdragon.commons.security.Roles;
-import systems.snapdragon.commons.security.DomainRegistry;
+import systems.hugmesh.commons.security.Roles;
+import systems.hugmesh.commons.security.DomainRegistry;
 ```
 
 **Method rename:** Two overloads of `Roles` that accepted `Set<String>` (raw authority
@@ -135,19 +135,19 @@ Calls that pass a `Collection<GrantedAuthority>` use the existing overloads unch
 ## Shared test base (published test-jar)
 
 Alongside the main jar, the `maven-jar-plugin` `test-jar` goal publishes
-`systems.snapdragon.commons.testsupport.PostgresTestSupport`
-(`src/test/java/systems/snapdragon/commons/testsupport/PostgresTestSupport.java`) as
-`systems.snapdragon:snapdragon-commons:2.0.0:tests` (test scope). Consumers extend it
+`systems.hugmesh.commons.testsupport.PostgresTestSupport`
+(`src/test/java/systems/hugmesh/commons/testsupport/PostgresTestSupport.java`) as
+`systems.hugmesh:hugmesh-commons:2.0.0:tests` (test scope). Consumers extend it
 to get ONE shared Testcontainers-Postgres base for the whole org instead of
 re-copying the container/Liquibase/R2DBC wiring per repo:
 
 ```xml
 <dependency>
-  <groupId>systems.snapdragon</groupId>
-  <artifactId>snapdragon-commons</artifactId>
+  <groupId>systems.hugmesh</groupId>
+  <artifactId>hugmesh-commons</artifactId>
   <classifier>tests</classifier>
   <scope>test</scope>
-  <!-- version managed by snapdragon-parent -->
+  <!-- version managed by hugmesh-parent -->
 </dependency>
 ```
 
@@ -175,22 +175,22 @@ jar.
 
 CI publishes the jar on the default branch and on version tags. The deploy step
 authenticates using the GitLab-injected `CI_JOB_TOKEN` — no secret is committed to the
-repository. Snapdragon CI runs on GitLab; there are no GitHub Actions in this repo.
+repository. HugMesh CI runs on GitLab; there are no GitHub Actions in this repo.
 
 ## Current State
 
 - **At `2.0.0` on the unified ecosystem baseline** — Spring Boot 4.0.7 / Spring Cloud
-  2025.1.2 on Java 25 LTS, child of `snapdragon-parent:2.7.0`. The artifact's own
+  2025.1.2 on Java 25 LTS, child of `hugmesh-parent:2.7.0`. The artifact's own
   version was bumped from `1.0.0` to `2.0.0` as part of the org-wide Boot 4 migration
-  (`snapdragon-federation-api` is the migrated exemplar); the parent metapom has since
+  (`hugmesh-federation-api` is the migrated exemplar); the parent metapom has since
   advanced independently through the org-wide dependency-upgrade campaign (Java 21→25
   LTS, Testcontainers 2.0.5) to `2.7.0`. These are two different version numbers
-  (this artifact's own `2.0.0` vs. the inherited `snapdragon-parent:2.7.0`) and are not
+  (this artifact's own `2.0.0` vs. the inherited `hugmesh-parent:2.7.0`) and are not
   expected to track each other — see [Coordinates](#coordinates) and `pom.xml`.
-- **Bottom of the shared-artifact stack.** `snapdragon-auth-core` (the shared
+- **Bottom of the shared-artifact stack.** `hugmesh-auth-core` (the shared
   account / session / MFA / Casdoor-admin infrastructure) depends on this library;
-  `snapdragon-auth-core` is in turn consumed by `snapdragon-user-bff-api` and
-  `snapdragon-admin-bff-api`. All reactive BFFs, and the gateway's resource-server
+  `hugmesh-auth-core` is in turn consumed by `hugmesh-user-bff-api` and
+  `hugmesh-admin-bff-api`. All reactive BFFs, and the gateway's resource-server
   config, depend on commons directly for the security / tenancy / config / web
   primitives above.
 - **Auth-model alignment.** The current native-login design keeps the Casdoor JWT
@@ -227,7 +227,7 @@ repository. Snapdragon CI runs on GitLab; there are no GitHub Actions in this re
   ```
 
   Login / session / account logic is being relocated from `admin-bff` to `user-bff`,
-  with the shared core extracted to `snapdragon-auth-core`. This library is unchanged
+  with the shared core extracted to `hugmesh-auth-core`. This library is unchanged
   by that move — it remains the JWT→authorities and tenancy substrate underneath both.
 - **`MFA_SATISFIED` is load-bearing.** Behaviour 7 — deriving `MFA_SATISFIED` from a
   fresh `mfa_satisfied_at` stamp written by the BFF, with the reserved-prefix guard
