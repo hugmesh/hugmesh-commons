@@ -30,6 +30,7 @@ flowchart TB
     commons --> auth_core
     commons --> gateway
     commons --> federation
+    commons --> user_bff
     commons --> owncast_bff
     commons --> forum_bff
     auth_core --> user_bff
@@ -41,11 +42,11 @@ flowchart TB
 ```
 groupId:    systems.hugmesh
 artifactId: hugmesh-commons
-version:    2.0.0
+version:    2.1.0
 packaging:  jar
 ```
 
-Child of `systems.hugmesh:hugmesh-parent:2.7.0` (the metapom), which pins the
+Child of `systems.hugmesh:hugmesh-parent:2.8.0` (the metapom), which pins the
 ecosystem baseline: **Spring Boot 4.0.7 / Spring Cloud 2025.1.2** on **Java 25 LTS**
 (eclipse-temurin:25), with Testcontainers 2.0.5.
 
@@ -137,7 +138,7 @@ Calls that pass a `Collection<GrantedAuthority>` use the existing overloads unch
 Alongside the main jar, the `maven-jar-plugin` `test-jar` goal publishes
 `systems.hugmesh.commons.testsupport.PostgresTestSupport`
 (`src/test/java/systems/hugmesh/commons/testsupport/PostgresTestSupport.java`) as
-`systems.hugmesh:hugmesh-commons:2.0.0:tests` (test scope). Consumers extend it
+`systems.hugmesh:hugmesh-commons:2.1.0:tests` (test scope). Consumers extend it
 to get ONE shared Testcontainers-Postgres base for the whole org instead of
 re-copying the container/Liquibase/R2DBC wiring per repo:
 
@@ -179,14 +180,17 @@ repository. HugMesh CI runs on GitLab; there are no GitHub Actions in this repo.
 
 ## Current State
 
-- **At `2.0.0` on the unified ecosystem baseline** — Spring Boot 4.0.7 / Spring Cloud
-  2025.1.2 on Java 25 LTS, child of `hugmesh-parent:2.7.0`. The artifact's own
+- **At `2.1.0` on the unified ecosystem baseline** — Spring Boot 4.0.7 / Spring Cloud
+  2025.1.2 on Java 25 LTS, child of `hugmesh-parent:2.8.0`. The artifact's own
   version was bumped from `1.0.0` to `2.0.0` as part of the org-wide Boot 4 migration
-  (`hugmesh-federation-api` is the migrated exemplar); the parent metapom has since
-  advanced independently through the org-wide dependency-upgrade campaign (Java 21→25
-  LTS, Testcontainers 2.0.5) to `2.7.0`. These are two different version numbers
-  (this artifact's own `2.0.0` vs. the inherited `hugmesh-parent:2.7.0`) and are not
-  expected to track each other — see [Coordinates](#coordinates) and `pom.xml`.
+  (`hugmesh-federation-api` is the migrated exemplar), then to `2.1.0` as part of the
+  Snapdragon→HugMesh rebrand (groupId `systems.snapdragon`→`systems.hugmesh`,
+  artifactId `snapdragon-commons`→`hugmesh-commons`, package move); the parent metapom
+  has advanced independently through the org-wide dependency-upgrade campaign (Java
+  21→25 LTS, Testcontainers 2.0.5) plus the same rebrand to `hugmesh-parent:2.8.0`.
+  These are two different version numbers (this artifact's own `2.1.0` vs. the
+  inherited `hugmesh-parent:2.8.0`) and are not expected to track each other — see
+  [Coordinates](#coordinates) and `pom.xml`.
 - **Bottom of the shared-artifact stack.** `hugmesh-auth-core` (the shared
   account / session / MFA / Casdoor-admin infrastructure) depends on this library;
   `hugmesh-auth-core` is in turn consumed by `hugmesh-user-bff-api` and
