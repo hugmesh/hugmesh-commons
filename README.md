@@ -31,6 +31,7 @@ flowchart TB
     commons --> gateway
     commons --> federation
     commons --> user_bff
+    commons --> admin_bff
     commons --> owncast_bff
     commons --> forum_bff
     auth_core --> user_bff
