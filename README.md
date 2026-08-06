@@ -4,17 +4,22 @@ The shared, **canonical** HugMesh security / tenancy / config / web building
 blocks. The classes in this library were previously duplicated — with only package names
 and access modifiers changed — into every reactive BFF (`hugmesh-federation-api`,
 `hugmesh-admin-bff-api`, `hugmesh-user-bff-api`, `hugmesh-owncast-bff-api`,
-…) and the gateway. This library is the single source of truth; the per-repo copies are
-replaced by a compile dependency on it.
+…) and the gateway. This library is the single source of truth for the reactive
+BFFs, whose per-repo copies have been replaced by a compile dependency on it. The
+gateway is the one exception — it deliberately keeps its own vendored copies; see
+below.
 
 It sits at the bottom of the shared-artifact stack. `hugmesh-auth-core` — the
 shared account / session / MFA / Casdoor-admin infrastructure consumed by
 `hugmesh-user-bff-api` and `hugmesh-admin-bff-api` — depends on **this** library
-for its security and tenancy primitives. Every reactive service also depends on it
-directly for the security / tenancy / web classes described below — as does the
-gateway's JWT resource server, which uses `CasdoorAuthorities` / `Roles` /
-`DomainRegistry` from this library for JWT validation, role extraction, and domain
-resolution (see the native-login sequence diagram under [Current State](#current-state)).
+for its security and tenancy primitives. Every reactive BFF also depends on it
+directly for the security / tenancy / web classes described below. The gateway
+takes a direct, explicitly-versioned dependency on commons too, but only to pin
+the Boot-4 / Security-7 binary-compat milestone: it deliberately keeps its own
+vendored `Roles` / `DomainRegistry` / `CasdoorAuthorities` /
+`TenancyResourceServerConfig`, because a class-by-class diff found the gateway's
+copies are supersets carrying load-bearing methods this library lacks (see the
+native-login sequence diagram under [Current State](#current-state)).
 
 ```mermaid
 flowchart TB
@@ -28,7 +33,7 @@ flowchart TB
     forum_bff["hugmesh-forum-bff-api"]
 
     commons --> auth_core
-    commons --> gateway
+    commons -.->|version pin only| gateway
     commons --> federation
     commons --> user_bff
     commons --> admin_bff
@@ -195,9 +200,15 @@ repository. HugMesh CI runs on GitLab; there are no GitHub Actions in this repo.
 - **Bottom of the shared-artifact stack.** `hugmesh-auth-core` (the shared
   account / session / MFA / Casdoor-admin infrastructure) depends on this library;
   `hugmesh-auth-core` is in turn consumed by `hugmesh-user-bff-api` and
-  `hugmesh-admin-bff-api`. All reactive BFFs, and the gateway's resource-server
-  config, depend on commons directly for the security / tenancy / config / web
-  primitives above.
+  `hugmesh-admin-bff-api`. All reactive BFFs depend on commons directly for the
+  security / tenancy / config / web primitives above. The gateway takes a direct,
+  explicitly-versioned dependency on commons too, but only to pin the Boot-4 /
+  Security-7 binary-compat milestone — it deliberately keeps its own vendored
+  `Roles` / `DomainRegistry` / `CasdoorAuthorities` / `TenancyResourceServerConfig`,
+  since a class-by-class diff found the gateway's copies are supersets carrying
+  load-bearing methods this library lacks (e.g. `isGameMaster`, `usernameOf`,
+  `namesOf`, `domainForHost`). The commons dependency makes the shared types
+  available to the gateway for future use, not current use.
 - **Auth-model alignment.** The current native-login design keeps the Casdoor JWT
   entirely server-side and Casdoor internal-only — it never redirects the browser.
   `login-ui` renders a first-party login form that POSTs credentials straight to
@@ -207,8 +218,9 @@ repository. HugMesh CI runs on GitLab; there are no GitHub Actions in this repo.
   server-side session storage. The browser never sees a Casdoor URL, authorization code,
   or JWT — it receives only an opaque `bff_`-prefixed session cookie. At the gateway, a
   pre-security exchange filter resolves the `bff_` cookie to the internal custody JWT, so
-  JWT validation, role extraction, and domain resolution — all implemented in this
-  library — run without modification.
+  JWT validation, role extraction, and domain resolution — implemented in the
+  gateway's own vendored `Roles` / `DomainRegistry` / `CasdoorAuthorities` (see
+  above) — run without modification.
 
   ```mermaid
   sequenceDiagram
@@ -227,7 +239,7 @@ repository. HugMesh CI runs on GitLab; there are no GitHub Actions in this repo.
       Browser->>gateway: API request + bff_ cookie
       gateway->>user-bff: resolve bff_ → JWT
       user-bff-->>gateway: internal custody JWT
-      gateway->>gateway: CasdoorAuthorities / Roles / DomainRegistry
+      gateway->>gateway: own (vendored) CasdoorAuthorities / Roles / DomainRegistry
       gateway-->>Browser: authorised response
   ```
 
@@ -248,8 +260,10 @@ This library underpins several in-flight and planned platform initiatives. New s
 primitives land here as they are generalised across services:
 
 - **SSO end-to-end live + e2e** — the opaque `bff_` ↔ custody-JWT bridge has been
-  verified through the gateway resource server against the `CasdoorAuthorities` /
-  `DomainRegistry` path. Full end-to-end test coverage is in progress.
+  verified through the gateway resource server against its own vendored
+  `CasdoorAuthorities` / `DomainRegistry` path (see [Current
+  State](#current-state) for why the gateway keeps vendored copies rather than
+  depending on this library's). Full end-to-end test coverage is in progress.
 - **MFA** (WebAuthn + TOTP + recovery, per-role defaults, step-up) — builds directly
   on the `MFA_SATISFIED` stamp derivation (behaviour 7) and the reserved-prefix guard
   already present in this library.

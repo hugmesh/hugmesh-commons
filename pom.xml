@@ -33,7 +33,7 @@
       </plugin>
 
       <!-- Publish a TEST-JAR alongside the main jar so every consumer can depend on
-           `systems.hugmesh:hugmesh-commons:2.0.0:tests` (test scope) and reuse
+           `systems.hugmesh:hugmesh-commons:2.1.0:tests` (test scope) and reuse
            ONE shared Testcontainers-Postgres base (PostgresTestSupport) instead of
            re-copying it per repo. -->
       <plugin>
