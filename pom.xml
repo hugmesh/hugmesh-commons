@@ -11,6 +11,20 @@
     <relativePath/>
   </parent>
 
+  <!-- OWN groupId, declared EXPLICITLY rather than inherited from the parent.
+       The parent is still systems.hugmesh:hugmesh-parent, so without this line
+       Maven inherits systems.hugmesh and publishes this artifact as
+       systems.hugmesh:hugmesh-commons — which is what it did, while the Java
+       package inside the jar had ALREADY been moved to net.hugmesh.commons
+       (commit 463c12c, "domain move to .net"). That left the rename half-applied
+       along the Maven axis: 9 of 11 consuming services already declare
+       net.hugmesh:hugmesh-commons:2.1.0, a coordinate NOTHING published, so every
+       one of their builds failed to resolve it — hugmesh-gateway included, which
+       is how a header fix ended up blocked on a groupId.
+       Moving the parent is deliberately NOT bundled in here: it is a separate
+       artifact with its own consumers, and this change is scoped to making the
+       coordinate match the package that already moved. -->
+  <groupId>net.hugmesh</groupId>
   <artifactId>hugmesh-commons</artifactId>
   <version>2.1.0</version>
   <packaging>jar</packaging>
