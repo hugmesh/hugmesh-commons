@@ -60,14 +60,14 @@ ecosystem baseline: **Spring Boot 4.0.7 / Spring Cloud 2025.1.2** on **Java 25 L
 
 | Class | Package | Role |
 |-------|---------|------|
-| `Roles` | `systems.hugmesh.commons.security` | JWT role / domain / MFA-stamp extraction. |
-| `RoleName` | `systems.hugmesh.commons.security` | closed enum of the four base Casdoor role tokens (`user`/`mod`/`admin`/`superadmin`); fail-closed `fromWire`/`require`/`isBaseRole` with the lowercase on-the-wire value preserved as a live contract. |
-| `CasdoorAuthorities` | `systems.hugmesh.commons.security` | Casdoor JWT → Spring authorities converter (the RESERVED-PREFIX injection guard lives here). |
-| `DomainRegistry` | `systems.hugmesh.commons.security` | issuer-URI → brand/domain map; single-issuer back-compat + multi-brand fail-closed; `knownDomains`/`isKnownDomain` validation. |
-| `PrincipalDomain` | `systems.hugmesh.commons.security` | instance-based, SUPERADMIN-aware per-request tenant scope (was the federation/admin `DomainScope`). |
-| `DomainScope` | `systems.hugmesh.commons.tenancy` | static SQL-predicate utility (`andPredicate`/`isUnscoped`) for per-domain repositories (was the user/owncast `DomainScope`). |
-| `TenancyResourceServerConfig` | `systems.hugmesh.commons.config` | config-gated, backward-compatible multi-issuer (per-brand Casdoor) resource-server wiring. |
-| `ApiException` | `systems.hugmesh.commons.web` | the BFF `{"error": msg}` exception with the full union of HTTP-status factories. |
+| `Roles` | `net.hugmesh.commons.security` | JWT role / domain / MFA-stamp extraction. |
+| `RoleName` | `net.hugmesh.commons.security` | closed enum of the four base Casdoor role tokens (`user`/`mod`/`admin`/`superadmin`); fail-closed `fromWire`/`require`/`isBaseRole` with the lowercase on-the-wire value preserved as a live contract. |
+| `CasdoorAuthorities` | `net.hugmesh.commons.security` | Casdoor JWT → Spring authorities converter (the RESERVED-PREFIX injection guard lives here). |
+| `DomainRegistry` | `net.hugmesh.commons.security` | issuer-URI → brand/domain map; single-issuer back-compat + multi-brand fail-closed; `knownDomains`/`isKnownDomain` validation. |
+| `PrincipalDomain` | `net.hugmesh.commons.security` | instance-based, SUPERADMIN-aware per-request tenant scope (was the federation/admin `DomainScope`). |
+| `DomainScope` | `net.hugmesh.commons.tenancy` | static SQL-predicate utility (`andPredicate`/`isUnscoped`) for per-domain repositories (was the user/owncast `DomainScope`). |
+| `TenancyResourceServerConfig` | `net.hugmesh.commons.config` | config-gated, backward-compatible multi-issuer (per-brand Casdoor) resource-server wiring. |
+| `ApiException` | `net.hugmesh.commons.web` | the BFF `{"error": msg}` exception with the full union of HTTP-status factories. |
 
 ## Preserved security behaviours
 
@@ -116,7 +116,7 @@ per-repo because it must construct the per-repo `SecurityConfig`.
 
 Then delete the repo-local copies of the classes above and update the import
 statements. The package root changes from the repo-specific prefix to
-`systems.hugmesh.commons.*`:
+`net.hugmesh.commons.*`:
 
 ```
 # Before (example from federation-api)
@@ -124,8 +124,8 @@ import systems.hugmesh.federation.security.Roles;
 import systems.hugmesh.federation.security.DomainRegistry;
 
 # After
-import systems.hugmesh.commons.security.Roles;
-import systems.hugmesh.commons.security.DomainRegistry;
+import net.hugmesh.commons.security.Roles;
+import net.hugmesh.commons.security.DomainRegistry;
 ```
 
 **Method rename:** Two overloads of `Roles` that accepted `Set<String>` (raw authority
@@ -142,8 +142,8 @@ Calls that pass a `Collection<GrantedAuthority>` use the existing overloads unch
 ## Shared test base (published test-jar)
 
 Alongside the main jar, the `maven-jar-plugin` `test-jar` goal publishes
-`systems.hugmesh.commons.testsupport.PostgresTestSupport`
-(`src/test/java/systems/hugmesh/commons/testsupport/PostgresTestSupport.java`) as
+`net.hugmesh.commons.testsupport.PostgresTestSupport`
+(`src/test/java/net/hugmesh/commons/testsupport/PostgresTestSupport.java`) as
 `systems.hugmesh:hugmesh-commons:2.1.0:tests` (test scope). Consumers extend it
 to get ONE shared Testcontainers-Postgres base for the whole org instead of
 re-copying the container/Liquibase/R2DBC wiring per repo:
