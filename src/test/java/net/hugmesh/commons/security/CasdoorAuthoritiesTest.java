@@ -51,6 +51,33 @@ class CasdoorAuthoritiesTest {
         }
 
         @Test
+        void alreadyPrefixedRoles_canonicalizeToSinglePrefix() {
+            // The seeded Casdoor roles are literally NAMED ROLE_ADMIN/ROLE_FORUM, so
+            // the claim arrives pre-prefixed. Blind prefixing minted ROLE_ROLE_ADMIN
+            // and every hasRole() answered 403 across the pure-resource-server BFFs.
+            List<String> a = names(CasdoorAuthorities.authorities(
+                    base().claim("roles", List.of("ROLE_ADMIN", "role_forum")).build(), SINGLE));
+            assertThat(a).contains("ROLE_ADMIN", "ROLE_FORUM");
+            assertThat(a).doesNotContain("ROLE_ROLE_ADMIN", "ROLE_ROLE_FORUM");
+        }
+
+        @Test
+        void reservedPrefixSmugglingStaysInert_evenViaRolePrefix() {
+            // SECURITY: canonicalization must not open a reserved-prefix escape.
+            // "DOMAIN_x" and "ROLE_DOMAIN_x" both land as the inert ROLE_DOMAIN_X,
+            // never as a bare DOMAIN_* tenant authority.
+            List<String> a = names(CasdoorAuthorities.authorities(
+                    base().claim("roles", List.of("DOMAIN_x", "ROLE_DOMAIN_x", "ROLE_")).build(), SINGLE));
+            assertThat(a).contains("ROLE_DOMAIN_X");
+            // The converter's own issuer-derived tenant authority (DOMAIN_default for
+            // the SINGLE registry) is legitimate — assert the SMUGGLED value never
+            // appears as a bare tenant authority, not that no DOMAIN_* exists at all.
+            assertThat(a).doesNotContain("DOMAIN_X", "DOMAIN_x");
+            // a bare/blank "ROLE_" entry is dropped, not turned into "ROLE_"
+            assertThat(a).doesNotContain("ROLE_");
+        }
+
+        @Test
         void legacyIsAdminBoolean_becomesRoleAdmin() {
             List<String> a = names(CasdoorAuthorities.authorities(base().claim("isAdmin", true).build(), SINGLE));
             assertThat(a).contains("ROLE_ADMIN");
