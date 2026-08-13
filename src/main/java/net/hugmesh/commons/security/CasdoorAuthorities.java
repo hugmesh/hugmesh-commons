@@ -320,12 +320,30 @@ public final class CasdoorAuthorities {
             for (Object r : list) {
                 String name = roleNameOf(r);
                 if (!name.isBlank()) {
-                    // Prefix forces ROLE_ on every roles-claim entry. This
-                    // means a roles entry of "DOMAIN_x" becomes
-                    // "ROLE_DOMAIN_X" — an inert authority that cannot
-                    // satisfy a tenant-scope check (see RESERVED_PREFIXES).
-                    auths.add(new SimpleGrantedAuthority(
-                            "ROLE_" + name.trim().toUpperCase()));
+                    // Canonicalize FIRST — strip ONE leading ROLE_ (case-insensitive) —
+                    // THEN force the single Spring ROLE_ prefix.
+                    //
+                    // The strip is load-bearing on this platform: the seeded Casdoor
+                    // roles are literally NAMED "ROLE_ADMIN"/"ROLE_FORUM"/..., so the
+                    // token's roles claim arrives already prefixed. Blind prefixing
+                    // minted ROLE_ROLE_FORUM, every hasRole('FORUM') answered 403, and
+                    // the four pure-resource-server BFFs (forum/wiki/tube/owncast)
+                    // denied every caller — invisible until the gateway's cookie->JWT
+                    // exchange was enabled, because the cookie-terminating BFFs never
+                    // run this converter.
+                    //
+                    // SECURITY unchanged: the result is ALWAYS re-ROLE_-prefixed, so a
+                    // roles entry can never inject a reserved-prefix authority —
+                    // "DOMAIN_x" still yields the inert "ROLE_DOMAIN_X", and
+                    // "ROLE_DOMAIN_x" now ALSO yields "ROLE_DOMAIN_X" (one strip, one
+                    // re-prefix; see RESERVED_PREFIXES).
+                    String canonical = name.trim().toUpperCase();
+                    if (canonical.startsWith("ROLE_")) {
+                        canonical = canonical.substring(5).trim();
+                    }
+                    if (!canonical.isEmpty()) {
+                        auths.add(new SimpleGrantedAuthority("ROLE_" + canonical));
+                    }
                 }
             }
         }
