@@ -190,7 +190,7 @@ repository. HugMesh CI runs on GitLab; there are no GitHub Actions in this repo.
   2025.1.2 on Java 25 LTS, child of `hugmesh-parent:2.8.0`. The artifact's own
   version was bumped from `1.0.0` to `2.0.0` as part of the org-wide Boot 4 migration
   (`hugmesh-federation-api` is the migrated exemplar), then to `2.1.0` as part of the
-  Snapdragon→HugMesh rebrand (artifactId `snapdragon-commons`→`hugmesh-commons`,
+  HugMesh rebrand (artifactId rename to `hugmesh-commons`,
   package move; the groupId has since settled on `net.hugmesh`, the reverse of
   `hugmesh.net`, for this artifact and its parent alike); the parent metapom
   has advanced independently through the org-wide dependency-upgrade campaign (Java
