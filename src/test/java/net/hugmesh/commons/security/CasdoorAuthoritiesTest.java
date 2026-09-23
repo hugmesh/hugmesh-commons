@@ -64,8 +64,8 @@ class CasdoorAuthoritiesTest {
         @Test
         void reservedPrefixSmugglingStaysInert_evenViaRolePrefix() {
             // SECURITY: canonicalization must not open a reserved-prefix escape.
-            // "DOMAIN_x" and "ROLE_DOMAIN_x" both land as the inert ROLE_DOMAIN_X,
-            // never as a bare DOMAIN_* tenant authority.
+            // "DOMAIN_x" and "ROLE_DOMAIN_x" both land as the harmless ROLE_DOMAIN_X —
+            // an ordinary role, not a DOMAIN_* tenant authority.
             List<String> a = names(CasdoorAuthorities.authorities(
                     base().claim("roles", List.of("DOMAIN_x", "ROLE_DOMAIN_x", "ROLE_")).build(), SINGLE));
             assertThat(a).contains("ROLE_DOMAIN_X");
