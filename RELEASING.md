@@ -53,7 +53,7 @@ $ curl ... -H "Authorization: Bearer $(gh auth token)" <same URL>
 
 A `<repositories>` entry in the pom would therefore turn every unauthenticated
 `./mvnw verify` and every `hugmesh-generator/tests/stack/m2-bootstrap.sh` cold build into a
-401. That cold build is how the compose lane builds this library today, from pinned commit
+401. That cold build is how the compose stack builds this library today, from pinned commit
 SHAs, and decision 27 deliberately **keeps** it as the mechanism.
 
 Two details in that file that are easy to get wrong:
@@ -139,7 +139,7 @@ only in a YAML comment is not a flag. Run it on its own:
 It was mutation-tested on 2026-09-17: production was broken eight ways (workflow deleted,
 push trigger added, `-s` dropped, `<pluginRepositories>` deleted, packages URL moved into
 `pom.xml`, `-DaltDeploymentRepository` dropped, `-DskipTests` swapped for
-`-Dmaven.test.skip=true`, `test-jar` unbound) and the guard went **red on all eight**, with
+`-Dmaven.test.skip=true`, `test-jar` unbound) and the guard **failed on all eight**, with
 no fail-open.
 
 ## What a human must still verify

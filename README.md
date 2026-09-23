@@ -18,8 +18,8 @@ takes a direct, explicitly-versioned dependency on commons too, but only to pin
 the Boot-4 / Security-7 binary-compat milestone: it deliberately keeps its own
 vendored `Roles` / `DomainRegistry` / `CasdoorAuthorities` /
 `TenancyResourceServerConfig`, because a class-by-class diff found the gateway's
-copies are supersets carrying load-bearing methods this library lacks (see the
-native-login sequence diagram under [Current State](#current-state)).
+copies are supersets carrying methods this library lacks and the gateway depends on
+(see the native-login sequence diagram under [Current State](#current-state)).
 
 ```mermaid
 flowchart TB
@@ -164,9 +164,9 @@ class MySliceTest extends PostgresTestSupport { /* ... */ }
 
 Key properties: a single static Postgres container reused across the whole test JVM
 (started once, not per-class), a fresh `cmtest_<n>` database created per test class so
-Liquibase seeds never leak across classes, and a `jsonTypeOverride()` seam (defaults to
-`"text"`) for repos whose changelogs reference `${json.type}` against a real `jsonb`
-column.
+Liquibase seeds never leak across classes, and an overridable `jsonTypeOverride()`
+(defaults to `"text"`) for repos whose changelogs reference `${json.type}` against a
+real `jsonb` column.
 
 ## Build / publish
 
@@ -187,16 +187,11 @@ repository. HugMesh CI runs on GitLab; there are no GitHub Actions in this repo.
 ## Current State
 
 - **At `2.1.0` on the unified ecosystem baseline** — Spring Boot 4.0.7 / Spring Cloud
-  2025.1.2 on Java 25 LTS, child of `hugmesh-parent:2.8.0`. The artifact's own
-  version was bumped from `1.0.0` to `2.0.0` as part of the org-wide Boot 4 migration
-  (`hugmesh-federation-api` is the migrated exemplar), then to `2.1.0` as part of the
-  HugMesh rebrand (artifactId rename to `hugmesh-commons`,
-  package move; the groupId has since settled on `net.hugmesh`, the reverse of
-  `hugmesh.net`, for this artifact and its parent alike); the parent metapom
-  has advanced independently through the org-wide dependency-upgrade campaign (Java
-  21→25 LTS, Testcontainers 2.0.5) plus the same rebrand to `hugmesh-parent:2.8.0`.
-  These are two different version numbers (this artifact's own `2.1.0` vs. the
-  inherited `hugmesh-parent:2.8.0`) and are not expected to track each other — see
+  2025.1.2 on Java 25 LTS, Testcontainers 2.0.5, child of `hugmesh-parent:2.8.0`
+  (`hugmesh-federation-api` is the migrated exemplar). The groupId is `net.hugmesh`,
+  the reverse of `hugmesh.net`, for this artifact and its parent alike. The artifact's
+  own `2.1.0` and the inherited `hugmesh-parent:2.8.0` are two different version
+  numbers that are not expected to track each other — see
   [Coordinates](#coordinates) and `pom.xml`.
 - **Bottom of the shared-artifact stack.** `hugmesh-auth-core` (the shared
   account / session / MFA / Casdoor-admin infrastructure) depends on this library;
@@ -207,7 +202,7 @@ repository. HugMesh CI runs on GitLab; there are no GitHub Actions in this repo.
   Security-7 binary-compat milestone — it deliberately keeps its own vendored
   `Roles` / `DomainRegistry` / `CasdoorAuthorities` / `TenancyResourceServerConfig`,
   since a class-by-class diff found the gateway's copies are supersets carrying
-  load-bearing methods this library lacks (e.g. `isGameMaster`, `usernameOf`,
+  methods this library lacks and the gateway depends on (e.g. `isGameMaster`, `usernameOf`,
   `namesOf`, `domainForHost`). The commons dependency makes the shared types
   available to the gateway for future use, not current use.
 - **Auth-model alignment.** The current native-login design keeps the Casdoor JWT
@@ -218,7 +213,7 @@ repository. HugMesh CI runs on GitLab; there are no GitHub Actions in this repo.
   internal `/api/login`, and exchanging the code for a JWT), then holds that JWT in
   server-side session storage. The browser never sees a Casdoor URL, authorization code,
   or JWT — it receives only an opaque `bff_`-prefixed session cookie. At the gateway, a
-  pre-security exchange filter resolves the `bff_` cookie to the internal custody JWT, so
+  pre-security exchange filter resolves the `bff_` cookie to the server-held Casdoor JWT, so
   JWT validation, role extraction, and domain resolution — implemented in the
   gateway's own vendored `Roles` / `DomainRegistry` / `CasdoorAuthorities` (see
   above) — run without modification.
@@ -247,7 +242,7 @@ repository. HugMesh CI runs on GitLab; there are no GitHub Actions in this repo.
   Login / session / account logic is being relocated from `admin-bff` to `user-bff`,
   with the shared core extracted to `hugmesh-auth-core`. This library is unchanged
   by that move — it remains the JWT→authorities and tenancy substrate underneath both.
-- **`MFA_SATISFIED` is load-bearing.** Behaviour 7 — deriving `MFA_SATISFIED` from a
+- **MFA enforcement depends on `MFA_SATISFIED`.** Behaviour 7 — deriving `MFA_SATISFIED` from a
   fresh `mfa_satisfied_at` stamp written by the BFF, with the reserved-prefix guard
   blocking forgery — is how BFF-driven MFA challenges are enforced even when the
   gateway sees only an opaque `bff_` session. The authority ships disabled by default
@@ -260,7 +255,7 @@ repository. HugMesh CI runs on GitLab; there are no GitHub Actions in this repo.
 This library underpins several in-flight and planned platform initiatives. New shared
 primitives land here as they are generalised across services:
 
-- **SSO end-to-end live + e2e** — the opaque `bff_` ↔ custody-JWT bridge has been
+- **SSO end-to-end live + e2e** — the opaque `bff_` ↔ server-held-JWT bridge has been
   verified through the gateway resource server against its own vendored
   `CasdoorAuthorities` / `DomainRegistry` path (see [Current
   State](#current-state) for why the gateway keeps vendored copies rather than
