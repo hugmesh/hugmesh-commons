@@ -52,8 +52,8 @@ class TenancyResourceServerConfigTest {
          * on {@code isTrusted}, and deliberately does not.
          *
          * <p>If you are here because you "fixed" {@code domainOf} to stop
-         * returning {@code "default"} on an empty registry: that default is
-         * load-bearing for legacy single-tenant clusters and changing it is a
+         * returning {@code "default"} on an empty registry: legacy single-tenant
+         * clusters silently depend on that default and changing it is a
          * live-boot behaviour change across every consumer. Do not change it to
          * make this test pass. This assertion exists so that the dependency is
          * explicit rather than accidental — the resolver's own fail-closed
