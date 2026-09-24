@@ -88,8 +88,9 @@ $ ./mvnw -o -q -B -ntp -s .github/maven-ci-settings.xml help:evaluate -Dexpressi
 This repo's release build resolves `net.hugmesh` artifacts published from **other**
 repositories (`hugmesh-build-config` on the analyser plugin classpaths, `hugmesh-parent` as this pom's own `<parent>`). `secrets.GITHUB_TOKEN` is scoped to the repository whose
 workflow is running, and GitHub does not extend it across repositories for package reads:
-each upstream package must name this repository under **Manage Actions access** in its own
-package settings, or the build must present a token carrying `read:packages`.
+the build must present a token carrying `read:packages`. That token is the organisation
+secret **`PACKAGES_READ_TOKEN`** (operator decision 90a = B, hugmesh-generator#347, answered
+2026-09-23).
 
 The first cut of this round wired every upstream `<server>` to `${env.GITHUB_TOKEN}`, and
 what makes that worse than an ordinary missing step is the **shape of its failure**. Maven
@@ -110,15 +111,26 @@ wall. So:
   read of a private package as 404*). Exercised against the live registry on 2026-09-18 with
   an invalid credential: it emitted the `401` branch for every upstream and exited 1.
 
-**Neither of those grants anything.** On launch day the operator picks one of two routes,
-and **that decision has not been made**:
+**Neither of those grants anything.** The grant is the **`PACKAGES_READ_TOKEN`** organisation
+secret. **Decided 2026-09-23, decision 90a = B:** one **classic** personal access token with
+the `read:packages` scope, stored as the org secret `PACKAGES_READ_TOKEN`, separate from
+`RELEASE_CHAIN_TOKEN`, created by the operator and **kept** as a standing secret, not a
+launch-day stopgap to be retired afterwards. It must be classic: GitHub's docs say *"GitHub
+Packages only supports authentication using a personal access token (classic)"* (read from
+the docs, not tested). It does not depend on any package existing first, so it serves a cold
+first publish. `release.yml` already prefers it and falls back to `GITHUB_TOKEN` only when it
+is absent; that fallback is **not a route**, because it cannot read another repository's
+packages (above).
 
-- **Route A, no secret:** on each upstream package → *Package settings* → **Manage Actions
-  access** → add this repository. Only possible **after** that package exists, so it cannot
-  be set up ahead of a cold first publish.
-- **Route B, one secret, works cold:** a PAT with `read:packages` on the hugmesh org stored
-  as **`PACKAGES_READ_TOKEN`** (org secret, or a repo secret here). `release.yml` prefers it
-  and falls back to `GITHUB_TOKEN`. This is the route for a launch-day single-click publish.
+- *Not the plan:* per-package **Manage Actions access** grants ("route A", which this file
+  offered as an option before 2026-09-23: on each upstream package, add this repository).
+  GitHub's docs list that setting only for container, npm, NuGet and RubyGems packages and
+  say Maven packages inherit their repository's permissions, so it is probably not offered
+  for these Maven packages at all. That is read from the docs, not tested, because no
+  `net.hugmesh` package is known to have been published. Even where it exists it can only be
+  granted after a package is published, so it could never serve a first run. Where a
+  `release.yml` comment or preflight message in this repo still offers it, that text predates
+  decision 90a.
 
 Full click list: `hugmesh-auth-core/RELEASING.md` §6.2. **Nothing here has been executed** —
 no Actions job in this org starts at all today (billing; `hugmesh-auth-core/RELEASING.md`
