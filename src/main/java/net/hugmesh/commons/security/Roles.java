@@ -84,7 +84,7 @@ public final class Roles {
     /**
      * The non-role marker authority asserted when the current session
      * completed a second factor recently enough to satisfy the MFA floor
-     * (D8 gateway MFA floor, ships dark — off by default).
+     * (D8 gateway MFA floor, present but switched off by default).
      *
      * <p>This is NOT a Casdoor role and NOT a permission — it is derived
      * ONLY by {@link #isMfaSatisfied(Jwt, long, long)} from the

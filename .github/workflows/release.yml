@@ -103,7 +103,7 @@ jobs:
           done
           exit ${rc}
 
-      # -s .github/maven-ci-settings.xml is LOAD-BEARING. The effective repository list of
+      # -s .github/maven-ci-settings.xml is required. The effective repository list of
       # this project is Maven Central alone, and net.hugmesh:hugmesh-parent:2.8.0 (this
       # pom's own <parent>) and net.hugmesh:hugmesh-build-config:0.5.0 (the analysers'
       # ruleset jar, on the PMD/Checkstyle/SpotBugs PLUGIN classpaths) are both 404 there.

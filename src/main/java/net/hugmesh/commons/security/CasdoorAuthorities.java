@@ -95,16 +95,17 @@ public final class CasdoorAuthorities {
      * {@code app.mfa.enabled} and {@code app.mfa.freshness-window}
      * values.
      *
-     * <p>Ships DARK: when {@code enabled} is {@code false} (the default),
-     * the converter emits the legacy authority set verbatim and
-     * {@code MFA_SATISFIED} is NEVER produced. Flipping {@code enabled}
-     * to {@code true} activates freshness checking against the
-     * BFF-written {@link Roles#MFA_SATISFIED_AT_CLAIM} claim.
+     * <p>Present but switched off by default: when {@code enabled} is
+     * {@code false} (the default), the converter emits the legacy
+     * authority set verbatim and {@code MFA_SATISFIED} is NEVER produced.
+     * Flipping {@code enabled} to {@code true} activates freshness
+     * checking against the BFF-written {@link Roles#MFA_SATISFIED_AT_CLAIM}
+     * claim.
      *
      * @param enabled               whether the {@code MFA_SATISFIED}
      *                              marker is derived at all;
      *                              {@code false} = legacy authority set
-     *                              (dark default)
+     *                              (default off)
      * @param freshnessWindowMillis the maximum accepted age of the
      *                              {@code mfa_satisfied_at} stamp —
      *                              {@code 0 <= (now - ts) <= window};
@@ -113,8 +114,8 @@ public final class CasdoorAuthorities {
     public record MfaConfig(boolean enabled, long freshnessWindowMillis) {
 
         /**
-         * The dark default — MFA derivation OFF, byte-identical to the
-         * legacy authority set that existed before the D8 MFA floor was
+         * MFA switched off by default — byte-identical to the legacy
+         * authority set that existed before the D8 MFA floor was
          * introduced.
          */
         public static final MfaConfig DISABLED =
@@ -143,8 +144,8 @@ public final class CasdoorAuthorities {
      *       a {@code DOMAIN_*} tenant scope or a token from brand-X
      *       could escalate into brand-Y. Note that a {@code roles} entry
      *       CAN contain the string {@code "DOMAIN_x"}, but the converter
-     *       always prepends {@code ROLE_} first, producing the inert
-     *       authority {@code ROLE_DOMAIN_X} — not a tenant scope.</li>
+     *       always prepends {@code ROLE_} first, producing the harmless
+     *       ordinary role {@code ROLE_DOMAIN_X} — not a tenant scope.</li>
      *   <li><b>{@code MFA_SATISFIED}</b> (D8) — the second-factor
      *       marker, emitted ONLY from the BFF-written,
      *       freshness-validated {@link Roles#MFA_SATISFIED_AT_CLAIM}
@@ -215,7 +216,7 @@ public final class CasdoorAuthorities {
      * {@link Flux} of {@link GrantedAuthority} objects, bound to the
      * given {@link DomainRegistry} and {@link MfaConfig}.
      *
-     * <p>When {@code mfa.enabled()} is {@code false} (the dark default)
+     * <p>When {@code mfa.enabled()} is {@code false} (the default)
      * the emitted authorities are byte-identical to the legacy set. When
      * {@code true}, a FRESH BFF-written
      * {@link Roles#MFA_SATISFIED_AT_CLAIM} claim adds the
@@ -323,7 +324,7 @@ public final class CasdoorAuthorities {
                     // Canonicalize FIRST — strip ONE leading ROLE_ (case-insensitive) —
                     // THEN force the single Spring ROLE_ prefix.
                     //
-                    // The strip is load-bearing on this platform: the seeded Casdoor
+                    // The strip must stay on this platform: the seeded Casdoor
                     // roles are literally NAMED "ROLE_ADMIN"/"ROLE_FORUM"/..., so the
                     // token's roles claim arrives already prefixed. Blind prefixing
                     // minted ROLE_ROLE_FORUM, every hasRole('FORUM') answered 403, and
@@ -334,7 +335,8 @@ public final class CasdoorAuthorities {
                     //
                     // SECURITY unchanged: the result is ALWAYS re-ROLE_-prefixed, so a
                     // roles entry can never inject a reserved-prefix authority —
-                    // "DOMAIN_x" still yields the inert "ROLE_DOMAIN_X", and
+                    // "DOMAIN_x" still yields the harmless "ROLE_DOMAIN_X" (an ordinary
+                    // role, not a DOMAIN_* tenant authority), and
                     // "ROLE_DOMAIN_x" now ALSO yields "ROLE_DOMAIN_X" (one strip, one
                     // re-prefix; see RESERVED_PREFIXES).
                     String canonical = name.trim().toUpperCase();
@@ -377,9 +379,9 @@ public final class CasdoorAuthorities {
             auths.add(new SimpleGrantedAuthority("ROLE_ADMIN"));
         }
 
-        // 5. MFA_SATISFIED marker (D8 MFA floor, ships dark — default
-        // off). Derived ONLY from the BFF-written mfa_satisfied_at claim
-        // (checked for freshness). Not a ROLE_ prefix, so it never
+        // 5. MFA_SATISFIED marker (D8 MFA floor, present but switched off
+        // by default). Derived ONLY from the BFF-written mfa_satisfied_at
+        // claim (checked for freshness). Not a ROLE_ prefix, so it never
         // satisfies a hasRole() check accidentally. The reserved-prefix
         // guard above ensures a forged permissions:["MFA_SATISFIED"] was
         // already dropped before reaching here.

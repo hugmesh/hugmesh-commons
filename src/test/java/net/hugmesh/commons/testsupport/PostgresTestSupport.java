@@ -31,7 +31,7 @@ import org.testcontainers.utility.DockerImageName;
  *   <li><b>R2DBC + Liquibase both repointed</b> at the fresh db — R2DBC for the
  *       reactive runtime reads/writes, Liquibase (over JDBC) owning the migrations.</li>
  *   <li><b>{@code spring.liquibase.parameters.json.type=text}</b> — harmless where a
- *       changelog never references {@code ${json.type}}; load-bearing where one does:
+ *       changelog never references {@code ${json.type}}; required where one does:
  *       on a real Postgres a {@code jsonb} column is returned as a {@code Json} type,
  *       not a {@code String}, which breaks String-mapped entity fields. Defaulting the
  *       parameter to {@code text} keeps those columns String-compatible. Override per

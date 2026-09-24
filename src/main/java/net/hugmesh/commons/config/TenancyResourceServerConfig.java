@@ -75,7 +75,8 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>This gate deliberately does NOT delegate to
  * {@link DomainRegistry#isTrusted(String)}: that method inherits
  * {@link DomainRegistry#domainOf(String)}'s legacy single-tenant
- * fail-open and answers {@code true} for ANY issuer on an empty registry.
+ * fail-open (validation returns true for any issuer instead of blocking unknown
+ * ones) and answers {@code true} for ANY issuer on an empty registry.
  * See {@code trustedIssuerOrNull} for the full rationale, and for why the
  * empty-registry-with-active-bean state is genuinely reachable. This class
  * fails closed on its own — not by grace of each consumer remembering to
@@ -89,7 +90,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * in multi-issuer mode too — authority output is byte-identical to the
  * single-issuer path.
  *
- * <h2>D8 MFA floor (ships dark)</h2>
+ * <h2>D8 MFA floor (present but switched off by default)</h2>
  *
  * <p>The same {@code app.mfa.enabled} (default {@code false}) and
  * {@code app.mfa.freshness-window} (default 10 minutes) that each repo's
@@ -145,7 +146,7 @@ public class TenancyResourceServerConfig {
     private final String backCompatJwkSetUri;
 
     /**
-     * D8 MFA floor toggle — ships DARK. The same
+     * D8 MFA floor toggle — present but switched off by default. The same
      * {@code app.mfa.enabled} property (default {@code false}) the
      * single-issuer {@code SecurityConfig} reads, so the
      * {@code MFA_SATISFIED} marker derivation is identical on both
@@ -246,8 +247,8 @@ public class TenancyResourceServerConfig {
                 new JwtIssuerReactiveAuthenticationManagerResolver(
                         byIssuerResolver);
 
-        // Opt-in, off-request-path decoder warmup — ships DARK (default
-        // off). See warmIssuersIfEnabled for trade-off details.
+        // Opt-in, off-request-path decoder warmup — present but switched off
+        // by default. See warmIssuersIfEnabled for trade-off details.
         warmIssuersIfEnabled(byIssuer);
 
         return delegate::resolve;
@@ -317,8 +318,8 @@ public class TenancyResourceServerConfig {
      * own rather than by grace of consumer discipline.
      *
      * <p>Note this does NOT change {@link DomainRegistry#domainOf(String)}'s
-     * legacy fail-open, which stays load-bearing for legacy single-tenant
-     * clusters; it only stops THIS resolver from depending on it.
+     * legacy fail-open, which other code silently depends on for legacy
+     * single-tenant clusters; it only stops THIS resolver from depending on it.
      *
      * @param issuer the raw {@code iss} claim from the inbound token (may be
      *               {@code null})
@@ -377,7 +378,7 @@ public class TenancyResourceServerConfig {
      * request arrives. Cold-start latency disappears for all subsequent
      * requests. The thread is daemonic so it never blocks JVM shutdown.
      *
-     * <p>This is SAFE and INERT BY DEFAULT: gated on the
+     * <p>This is SAFE and DOES NOTHING BY DEFAULT: gated on the
      * {@code app.tenancy.warmup-issuers} system property or
      * {@code APP_TENANCY_WARMUP_ISSUERS} environment variable (default:
      * off). Failures during warmup are swallowed — a transient Casdoor
@@ -389,7 +390,7 @@ public class TenancyResourceServerConfig {
     private void warmIssuersIfEnabled(
             final Map<String, ReactiveAuthenticationManager> byIssuer) {
         if (!warmupEnabled()) {
-            return; // DARK default — no change to the existing lazy path.
+            return; // Off by default — no change to the existing lazy path.
         }
         Set<String> issuers = domainRegistry.trustedIssuers();
         if (issuers.isEmpty()) {
