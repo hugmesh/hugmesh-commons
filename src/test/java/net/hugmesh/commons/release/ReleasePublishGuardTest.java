@@ -628,5 +628,11 @@ class ReleasePublishGuardTest {
                         + "a launch-day step or an alternative sends the operator to a setting "
                         + "that is probably not offered for Maven packages.")
                 .contains("*Not the plan:* per-package **Manage Actions access**");
+        String notThePlan = "*Not the plan:* per-package **Manage Actions access**";
+        assertThat(releasing.replaceAll("\\s+", " ").replace(notThePlan, ""))
+                .as("RELEASING.md mentions 'Manage Actions access' outside the '*Not the plan:*' "
+                        + "bullet. Decision 90a = B made PACKAGES_READ_TOKEN the only route, so any "
+                        + "other mention reads as a live option or a launch-day step.")
+                .doesNotContainIgnoringCase("Manage Actions access");
     }
 }
