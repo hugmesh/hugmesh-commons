@@ -98,8 +98,10 @@ ecosystem baseline: **Spring Boot 4.0.7 / Spring Cloud 2025.1.2** on **Java 25 L
    escalation, and MFA forgery.
 5. **Fail-closed domain resolution.** When `app.tenancy.issuers` is set, an issuer not
    in the map resolves to `null`, not a default domain, and the multi-issuer decoder
-   rejects that token with `401` before any authorities are built. With no issuer
-   configured at all, `DomainRegistry.domainOf` returns `"default"` for everything.
+   rejects that token with `401` before any authorities are built. The converter alone
+   does not fail closed: `CasdoorAuthorities` maps a `null` domain to `DOMAIN_default`,
+   so the decoder is the gate. With no issuer configured at all,
+   `DomainRegistry.domainOf` returns `"default"` for everything.
    `domainOf(authorities)` also returns `null` when zero or more than one `DOMAIN_`
    authority is present, because several domain authorities mean the token was
    tampered with.
@@ -224,9 +226,9 @@ Two pipelines are checked in:
 ## Current State
 
 - **At `2.1.0` on the unified ecosystem baseline.** Spring Boot 4.0.7 / Spring Cloud
-  2025.1.2 on Java 25 LTS, Testcontainers 2.0.5, child of `hugmesh-parent:2.8.0`. The
-  groupId is `net.hugmesh`, the reverse of `hugmesh.net`, for this artifact and its
-  parent alike. The artifact's `2.1.0` and the inherited `hugmesh-parent:2.8.0` are two
+  2025.1.2 on Java 25 LTS, Testcontainers 2.0.5, child of `hugmesh-parent:2.8.0`
+  (`hugmesh-federation-api` is the migrated exemplar). The groupId is `net.hugmesh`,
+  the reverse of `hugmesh.net`, for this artifact and its parent alike. The artifact's `2.1.0` and the inherited `hugmesh-parent:2.8.0` are two
   different version numbers and are not expected to track each other; see
   [Coordinates](#coordinates) and `pom.xml`.
 - **Bottom of the shared-artifact stack.** `hugmesh-auth-core` depends on this library,
