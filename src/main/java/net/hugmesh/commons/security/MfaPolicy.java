@@ -2,6 +2,7 @@ package net.hugmesh.commons.security;
 
 import org.springframework.security.oauth2.jwt.Jwt;
 
+import java.util.Collection;
 import java.util.EnumMap;
 import java.util.Map;
 import java.util.Objects;
@@ -22,6 +23,17 @@ import java.util.Objects;
  * {@code ROLE_USER}. A role with no entry is {@link Requirement#OPTIONAL}.
  * {@link #DEFAULT} has no entries, so for an authenticated principal (a non-null
  * JWT) it yields {@link Requirement#OPTIONAL} and {@link Decision#ALLOW}.
+ *
+ * <p>A {@code roles} entry is read the way {@link CasdoorAuthorities} reads it:
+ * trimmed, upper-cased and stripped of one leading {@code ROLE_}, so the
+ * platform's own token shape ({@code ROLE_ADMIN}) and the bare spelling
+ * ({@code admin}) are the same role. A well-formed name outside the four base
+ * roles (for example {@code ROLE_FORUM}) is ignored. A {@code roles} claim this
+ * class cannot read (not a list, an entry that is neither a string nor an object
+ * with a string {@code name}, or a name that is empty once the prefix is
+ * stripped) counts as {@link Requirement#REQUIRED} whenever the policy has any
+ * {@code REQUIRED} entry, because the unread part may hold the role that entry
+ * covers.
  *
  * <h2>Decision</h2>
  *
@@ -102,21 +114,64 @@ public final class MfaPolicy {
         if (byRole.get(RoleName.USER) == Requirement.REQUIRED) {
             return Requirement.REQUIRED;
         }
-        for (String name : Roles.fromJwt(jwt)) {
-            RoleName role = RoleName.fromWire(name);
+        if (Boolean.TRUE.equals(jwt.getClaim("isAdmin"))
+                && byRole.get(RoleName.ADMIN) == Requirement.REQUIRED) {
+            return Requirement.REQUIRED;
+        }
+        Object claim = jwt.getClaim("roles");
+        if (claim == null) {
+            return Requirement.OPTIONAL;
+        }
+        if (!(claim instanceof Collection<?> list)) {
+            return unparseable();
+        }
+        for (Object item : list) {
+            String raw = rawName(item);
+            if (raw == null) {
+                return unparseable();
+            }
+            if (raw.isBlank()) {
+                continue;
+            }
+            String canonical = CasdoorAuthorities.canonicalRole(raw);
+            if (canonical.isEmpty()) {
+                return unparseable();
+            }
+            RoleName role = baseRole(canonical);
             if (role != null && byRole.get(role) == Requirement.REQUIRED) {
                 return Requirement.REQUIRED;
             }
         }
-        if (Roles.isSuperadmin(jwt)
-                && byRole.get(RoleName.SUPERADMIN) == Requirement.REQUIRED) {
-            return Requirement.REQUIRED;
-        }
-        if (Roles.isAdmin(jwt)
-                && byRole.get(RoleName.ADMIN) == Requirement.REQUIRED) {
-            return Requirement.REQUIRED;
-        }
         return Requirement.OPTIONAL;
+    }
+
+    /** Resolves a canonical role name, accepting the super-role spellings. */
+    private static RoleName baseRole(final String canonical) {
+        if ("SUPER-ADMIN".equals(canonical) || "SUPER_ADMIN".equals(canonical)) {
+            return RoleName.SUPERADMIN;
+        }
+        return RoleName.fromWire(canonical);
+    }
+
+    /** The string a {@code roles} entry carries, or {@code null} for an unrecognised shape. */
+    private static String rawName(final Object item) {
+        if (item instanceof String s) {
+            return s;
+        }
+        if (item instanceof Map<?, ?> m && m.get("name") instanceof String s) {
+            return s;
+        }
+        return null;
+    }
+
+    /**
+     * What a {@code roles} claim this class cannot read means: required when
+     * any entry in the policy is required, because the unread part might hold
+     * the role that entry covers; otherwise nothing is required anyway.
+     */
+    private Requirement unparseable() {
+        return byRole.containsValue(Requirement.REQUIRED)
+                ? Requirement.REQUIRED : Requirement.OPTIONAL;
     }
 
     /**
