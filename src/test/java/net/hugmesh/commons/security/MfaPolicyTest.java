@@ -169,6 +169,106 @@ class MfaPolicyTest {
                 .isEqualTo(Requirement.OPTIONAL);
     }
 
+    // The platform's seeded Casdoor roles are literally named ROLE_ADMIN etc., so
+    // real tokens arrive prefixed (see CasdoorAuthorities).
+
+    private static Jwt withRolesClaim(final Object roles) {
+        return base().claim("roles", roles).build();
+    }
+
+    @Test
+    void platformShape_prefixedRoleNames_areTheBaseRole() {
+        for (String spelling : List.of("ROLE_ADMIN", "role_admin", " ROLE_ADMIN ", "ROLE_ ADMIN")) {
+            Jwt token = withRolesClaim(List.of(spelling));
+            assertThat(adminRequired().requirementFor(token))
+                    .as(spelling).isEqualTo(Requirement.REQUIRED);
+            assertThat(adminRequired().decide(token, NOW, WINDOW))
+                    .as(spelling).isEqualTo(Decision.CHALLENGE);
+        }
+    }
+
+    @Test
+    void platformShape_objectFormWithPrefixedName_isTheBaseRole() {
+        Jwt token = withRolesClaim(List.of(Map.of("name", "ROLE_ADMIN", "displayName", "Admin")));
+        assertThat(adminRequired().requirementFor(token)).isEqualTo(Requirement.REQUIRED);
+    }
+
+    @Test
+    void platformShape_prefixedSuperadminSpellings_areTheSuperadminRole() {
+        MfaPolicy p = MfaPolicy.of(Map.of(RoleName.SUPERADMIN, Requirement.REQUIRED));
+        for (String spelling : List.of("ROLE_SUPERADMIN", "ROLE_SUPER-ADMIN", "ROLE_SUPER_ADMIN")) {
+            assertThat(p.requirementFor(withRolesClaim(List.of(spelling))))
+                    .as(spelling).isEqualTo(Requirement.REQUIRED);
+        }
+    }
+
+    @Test
+    void platformShape_prefixedModRole_isTheModRole() {
+        MfaPolicy p = MfaPolicy.of(Map.of(RoleName.MOD, Requirement.REQUIRED));
+        assertThat(p.requirementFor(withRolesClaim(List.of("ROLE_MOD")))).isEqualTo(Requirement.REQUIRED);
+    }
+
+    @Test
+    void platformShape_prefixedRequiredRole_withFreshStamp_isAllowed() {
+        Jwt fresh = base().claim("roles", List.of("ROLE_ADMIN"))
+                .claim(Roles.MFA_SATISFIED_AT_CLAIM, String.valueOf(NOW - 1_000)).build();
+        assertThat(adminRequired().decide(fresh, NOW, WINDOW)).isEqualTo(Decision.ALLOW);
+    }
+
+    @Test
+    void anyRoleTheConverterTurnsIntoAnAdminAuthority_isRequiredUnderAnAdminPolicy() {
+        MfaPolicy p = MfaPolicy.of(Map.of(
+                RoleName.ADMIN, Requirement.REQUIRED, RoleName.SUPERADMIN, Requirement.REQUIRED));
+        for (String spelling : List.of("ROLE_ADMIN", "role_admin", " ROLE_ADMIN ", "ROLE_ ADMIN", "admin",
+                "ROLE_SUPERADMIN", "ROLE_SUPER-ADMIN", "ROLE_SUPER_ADMIN", "super-admin", "SUPER_ADMIN")) {
+            Jwt token = withRolesClaim(List.of(spelling));
+            boolean privileged = CasdoorAuthorities.authorities(token, null).stream()
+                    .map(a -> a.getAuthority())
+                    .anyMatch(a -> a.equals("ROLE_ADMIN") || a.equals("ROLE_SUPERADMIN")
+                            || a.equals("ROLE_SUPER-ADMIN") || a.equals("ROLE_SUPER_ADMIN"));
+            assertThat(privileged).as("converter grants a privileged authority for " + spelling).isTrue();
+            assertThat(p.requirementFor(token)).as(spelling).isEqualTo(Requirement.REQUIRED);
+        }
+    }
+
+    @Test
+    void wellFormedAppRole_withPrefix_isIgnored() {
+        assertThat(adminRequired().requirementFor(withRolesClaim(List.of("ROLE_FORUM", "ROLE_matrix"))))
+                .isEqualTo(Requirement.OPTIONAL);
+    }
+
+    @Test
+    void doublePrefix_isNotTheBaseRole() {
+        // One strip, one re-prefix: the converter mints ROLE_ROLE_ADMIN, an ordinary role.
+        assertThat(adminRequired().requirementFor(withRolesClaim(List.of("ROLE_ROLE_ADMIN"))))
+                .isEqualTo(Requirement.OPTIONAL);
+    }
+
+    @Test
+    void unreadableRolesClaim_failsClosed_whenThePolicyRequiresAnything() {
+        List<Object> unreadable = new java.util.ArrayList<>();
+        unreadable.add(null);
+        for (Object claim : List.of("ROLE_ADMIN", Map.of("name", "ROLE_ADMIN"), 7,
+                unreadable, List.of(42), List.of(Map.of("displayName", "no name")),
+                List.of(Map.of("name", 7)), List.of("ROLE_"), List.of("role_ "),
+                List.of("matrix", 42))) {
+            Jwt token = withRolesClaim(claim);
+            assertThat(adminRequired().requirementFor(token))
+                    .as(String.valueOf(claim)).isEqualTo(Requirement.REQUIRED);
+            assertThat(adminRequired().decide(token, NOW, WINDOW))
+                    .as(String.valueOf(claim)).isEqualTo(Decision.CHALLENGE);
+            assertThat(MfaPolicy.DEFAULT.requirementFor(token))
+                    .as("default " + claim).isEqualTo(Requirement.OPTIONAL);
+        }
+    }
+
+    @Test
+    void blankRoleEntries_areHarmless() {
+        assertThat(adminRequired().requirementFor(
+                withRolesClaim(List.of("", "  ", Map.of("name", " ")))))
+                .isEqualTo(Requirement.OPTIONAL);
+    }
+
     @Test
     void nullJwt_isRequiredAndChallenged_evenUnderTheDefaultPolicy() {
         assertThat(MfaPolicy.DEFAULT.requirementFor(null)).isEqualTo(Requirement.REQUIRED);

@@ -339,10 +339,7 @@ public final class CasdoorAuthorities {
                     // role, not a DOMAIN_* tenant authority), and
                     // "ROLE_DOMAIN_x" now ALSO yields "ROLE_DOMAIN_X" (one strip, one
                     // re-prefix; see RESERVED_PREFIXES).
-                    String canonical = name.trim().toUpperCase();
-                    if (canonical.startsWith("ROLE_")) {
-                        canonical = canonical.substring(5).trim();
-                    }
+                    String canonical = canonicalRole(name);
                     if (!canonical.isEmpty()) {
                         auths.add(new SimpleGrantedAuthority("ROLE_" + canonical));
                     }
@@ -412,6 +409,29 @@ public final class CasdoorAuthorities {
     // -----------------------------------------------------------------------
     // Internal helpers
     // -----------------------------------------------------------------------
+
+    /**
+     * Canonicalizes one raw {@code roles} entry: trim, upper-case, strip ONE
+     * leading {@code ROLE_}, trim again. The converter prefixes the result with
+     * {@code ROLE_} to mint the authority, and {@link MfaPolicy} resolves the
+     * role it applies a second-factor requirement to through this same method,
+     * so the role that grants access and the role that triggers the
+     * requirement cannot drift apart.
+     *
+     * @param name the raw role name; may be {@code null}
+     * @return the canonical upper-case name, or {@code ""} when the entry is
+     *         blank or nothing is left after the strip
+     */
+    static String canonicalRole(final String name) {
+        if (name == null || name.isBlank()) {
+            return "";
+        }
+        String canonical = name.trim().toUpperCase();
+        if (canonical.startsWith("ROLE_")) {
+            canonical = canonical.substring(5).trim();
+        }
+        return canonical;
+    }
 
     /**
      * Extracts the role name string from a {@code roles} claim entry,
