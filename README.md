@@ -62,7 +62,7 @@ ecosystem baseline: **Spring Boot 4.0.7 / Spring Cloud 2025.1.2** on **Java 25 L
 |-------|---------|------|
 | `Roles` | `net.hugmesh.commons.security` | JWT role / domain / MFA-stamp extraction. |
 | `RoleName` | `net.hugmesh.commons.security` | closed enum of the four base Casdoor role tokens (`user`/`mod`/`admin`/`superadmin`); fail-closed `fromWire`/`require`/`isBaseRole` with the lowercase on-the-wire value preserved as a live contract. |
-| `MfaPolicy` | `net.hugmesh.commons.security` | per-role second-factor requirement (`REQUIRED`/`OPTIONAL`) and the `ALLOW`/`CHALLENGE` step-up decision over the `mfa_satisfied_at` stamp; the default policy requires nothing of a principal with a valid token. |
+| `MfaPolicy` | `net.hugmesh.commons.security` | per-role second-factor requirement (`REQUIRED`/`OPTIONAL`) and the `ALLOW`/`CHALLENGE` step-up decision over the `mfa_satisfied_at` stamp; roles are read like `CasdoorAuthorities` reads them (`ROLE_ADMIN` and `admin` are the same role); an unreadable `roles` claim is `REQUIRED` when the policy requires anything; the default policy requires nothing of a principal with a valid token. |
 | `CasdoorAuthorities` | `net.hugmesh.commons.security` | Casdoor JWT → Spring authorities converter (the RESERVED-PREFIX injection guard lives here). |
 | `DomainRegistry` | `net.hugmesh.commons.security` | issuer-URI → brand/domain map; single-issuer back-compat + multi-brand fail-closed; `knownDomains`/`isKnownDomain` validation. |
 | `PrincipalDomain` | `net.hugmesh.commons.security` | instance-based, SUPERADMIN-aware per-request tenant scope (was the federation/admin `DomainScope`). |
