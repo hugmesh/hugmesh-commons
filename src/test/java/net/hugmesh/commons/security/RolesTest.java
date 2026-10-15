@@ -61,6 +61,94 @@ class RolesTest {
     }
 
     @Nested
+    class PrefixedRoleSpellings {
+
+        // The platform's seeded Casdoor roles are literally named ROLE_ADMIN etc.,
+        // and CasdoorAuthorities mints ROLE_ADMIN for them. The Jwt predicates must
+        // read the same token the same way.
+
+        @Test
+        void prefixedAdminToken_isAdmin_inEverySpelling() {
+            for (String spelling : List.of("ROLE_ADMIN", "role_admin", " ROLE_ADMIN ", "ROLE_ ADMIN",
+                    "Role_Admin")) {
+                Jwt jwt = base().claim("roles", List.of(spelling)).build();
+                assertThat(Roles.isAdmin(jwt)).as(spelling).isTrue();
+                assertThat(Roles.has(jwt, "ADMIN")).as(spelling).isTrue();
+                assertThat(Roles.fromJwt(jwt)).as(spelling).containsExactly("ADMIN");
+            }
+        }
+
+        @Test
+        void prefixedAdminObjectShape_isAdmin() {
+            Jwt jwt = base().claim("roles", List.of(java.util.Map.of("name", "ROLE_ADMIN"))).build();
+            assertThat(Roles.isAdmin(jwt)).isTrue();
+        }
+
+        @Test
+        void prefixedSuperadminToken_isSuperadmin_inEverySpelling() {
+            for (String spelling : List.of("ROLE_SUPERADMIN", "ROLE_SUPER-ADMIN", "ROLE_SUPER_ADMIN",
+                    "role_superadmin")) {
+                assertThat(Roles.isSuperadmin(base().claim("roles", List.of(spelling)).build()))
+                        .as(spelling).isTrue();
+            }
+        }
+
+        @Test
+        void prefixedImageBuilderToken_isImageBuilder() {
+            assertThat(Roles.isImageBuilder(base().claim("roles", List.of("ROLE_IMAGE-BUILDER")).build())).isTrue();
+            assertThat(Roles.isImageBuilder(base().claim("roles", List.of("ROLE_IMAGE_BUILDER")).build())).isTrue();
+        }
+
+        @Test
+        void has_acceptsAPrefixedWantedName() {
+            Jwt jwt = base().claim("roles", List.of("ROLE_ADMIN")).build();
+            assertThat(Roles.has(jwt, "ROLE_ADMIN")).isTrue();
+            assertThat(Roles.has(jwt, "ROLE_MOD")).isFalse();
+        }
+
+        @Test
+        void onlyOnePrefixIsStripped_likeTheConverter() {
+            // The converter mints ROLE_ROLE_ADMIN for this entry: an ordinary role, not ROLE_ADMIN.
+            Jwt jwt = base().claim("roles", List.of("ROLE_ROLE_ADMIN")).build();
+            assertThat(Roles.isAdmin(jwt)).isFalse();
+            assertThat(Roles.isSuperadmin(jwt)).isFalse();
+            assertThat(Roles.fromJwt(jwt)).containsExactly("ROLE_ADMIN");
+        }
+
+        @Test
+        void aBarePrefix_isNotARole() {
+            for (String spelling : List.of("ROLE_", "role_", " ROLE_ ")) {
+                Jwt jwt = base().claim("roles", List.of(spelling)).build();
+                assertThat(Roles.fromJwt(jwt)).as(spelling).isEmpty();
+                assertThat(Roles.has(jwt, "")).as(spelling).isFalse();
+                assertThat(Roles.has(jwt, "ROLE_")).as(spelling).isFalse();
+            }
+        }
+
+        @Test
+        void aPrefixedNameThatIsNotAdmin_doesNotGrantAdmin() {
+            assertThat(Roles.isAdmin(base().claim("roles", List.of("ROLE_FORUM", "ROLE_ADMINISTRATOR")).build()))
+                    .isFalse();
+        }
+
+        @Test
+        void jwtPredicatesAgreeWithTheConverter_forEveryEntry() {
+            for (String spelling : List.of("ROLE_ADMIN", "admin", "ROLE_ ADMIN", "ROLE_ROLE_ADMIN",
+                    "ROLE_SUPERADMIN", "super-admin", "ROLE_FORUM")) {
+                Jwt jwt = base().claim("roles", List.of(spelling)).build();
+                var authorities = CasdoorAuthorities.authorities(jwt, null).stream()
+                        .map(a -> a.getAuthority()).toList();
+                assertThat(Roles.isAdmin(jwt)).as(spelling)
+                        .isEqualTo(authorities.contains("ROLE_ADMIN"));
+                assertThat(Roles.isSuperadmin(jwt)).as(spelling)
+                        .isEqualTo(authorities.contains("ROLE_SUPERADMIN")
+                                || authorities.contains("ROLE_SUPER-ADMIN")
+                                || authorities.contains("ROLE_SUPER_ADMIN"));
+            }
+        }
+    }
+
+    @Nested
     class UserSituational {
 
         @Test
