@@ -62,6 +62,7 @@ ecosystem baseline: **Spring Boot 4.0.7 / Spring Cloud 2025.1.2** on **Java 25 L
 |-------|---------|------|
 | `Roles` | `net.hugmesh.commons.security` | JWT role / domain / MFA-stamp extraction. |
 | `RoleName` | `net.hugmesh.commons.security` | closed enum of the four base Casdoor role tokens (`user`/`mod`/`admin`/`superadmin`); fail-closed `fromWire`/`require`/`isBaseRole` with the lowercase on-the-wire value preserved as a live contract. |
+| `MfaPolicy` | `net.hugmesh.commons.security` | per-role second-factor requirement (`REQUIRED`/`OPTIONAL`) and the `ALLOW`/`CHALLENGE` step-up decision over the `mfa_satisfied_at` stamp; the default policy requires nothing of a principal with a valid token. |
 | `CasdoorAuthorities` | `net.hugmesh.commons.security` | Casdoor JWT → Spring authorities converter (the RESERVED-PREFIX injection guard lives here). |
 | `DomainRegistry` | `net.hugmesh.commons.security` | issuer-URI → brand/domain map; single-issuer back-compat + multi-brand fail-closed; `knownDomains`/`isKnownDomain` validation. |
 | `PrincipalDomain` | `net.hugmesh.commons.security` | instance-based, SUPERADMIN-aware per-request tenant scope (was the federation/admin `DomainScope`). |
@@ -262,7 +263,9 @@ primitives land here as they are generalised across services:
   depending on this library's). Full end-to-end test coverage is in progress.
 - **MFA** (WebAuthn + TOTP + recovery, per-role defaults, step-up) — builds directly
   on the `MFA_SATISFIED` stamp derivation (behaviour 7) and the reserved-prefix guard
-  already present in this library.
+  already present in this library. Per-role defaults and the step-up decision are in
+  `MfaPolicy`; its default policy asks a principal with a valid token for no second
+  factor. Factor enrolment (WebAuthn, TOTP, recovery) is not in this library.
 - **Multi-tenancy / multi-brand superadmin** — per-domain CA with per-brand
   gateway / BFF / UI instances. This exercises the opt-in multi-issuer path
   (`TenancyResourceServerConfig`) and the fail-closed domain resolution already
