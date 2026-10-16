@@ -220,8 +220,8 @@ Two pipelines are checked in:
   committed to the repository.
 - `.github/workflows/release.yml` publishes the jar and the `tests` classifier to
   GitHub Packages. It runs only on manual dispatch (`workflow_dispatch`), never on push
-  or tag. `RELEASING.md` says it has never run: the org's Actions jobs were not
-  starting because of billing.
+  or tag. `RELEASING.md` records that it has never run, and that no Actions job in
+  the org starts at all because of a billing block.
 
 ## Current State
 
