@@ -74,8 +74,9 @@ ecosystem baseline: **Spring Boot 4.0.7 / Spring Cloud 2025.1.2** on **Java 25 L
 
 | Class | Package | Role |
 |-------|---------|------|
-| `Roles` | `net.hugmesh.commons.security` | JWT role / domain / MFA-stamp extraction. |
+| `Roles` | `net.hugmesh.commons.security` | JWT role / domain / MFA-stamp extraction; `roles` entries are read like `CasdoorAuthorities` reads them (`ROLE_ADMIN` and `admin` are the same role). |
 | `RoleName` | `net.hugmesh.commons.security` | closed enum of the four base Casdoor role tokens (`user`/`mod`/`admin`/`superadmin`); fail-closed `fromWire`/`require`/`isBaseRole` with the lowercase on-the-wire value preserved as a live contract. |
+| `MfaPolicy` | `net.hugmesh.commons.security` | per-role second-factor requirement (`REQUIRED`/`OPTIONAL`) and the `ALLOW`/`CHALLENGE` step-up decision over the `mfa_satisfied_at` stamp; roles are read like `CasdoorAuthorities` reads them (`ROLE_ADMIN` and `admin` are the same role); an unreadable `roles` claim is `REQUIRED` when the policy requires anything; the default policy requires nothing of a principal with a valid token. |
 | `CasdoorAuthorities` | `net.hugmesh.commons.security` | Casdoor JWT → Spring authorities converter (the RESERVED-PREFIX injection guard lives here). |
 | `DomainRegistry` | `net.hugmesh.commons.security` | issuer-URI → brand/domain map; single-issuer back-compat + multi-brand fail-closed; `knownDomains`/`isKnownDomain` validation. |
 | `PrincipalDomain` | `net.hugmesh.commons.security` | instance-based, SUPERADMIN-aware per-request tenant scope (was the federation/admin `DomainScope`). |
@@ -297,7 +298,9 @@ touches this library.
   this library's). The proof against a running cluster is not finished.
 - **MFA** (WebAuthn + TOTP + recovery, per-role defaults, step-up). Builds directly on
   the `MFA_SATISFIED` stamp derivation (behaviour 7) and the reserved-prefix guard
-  already in this library.
+  already in this library. Per-role defaults and the step-up decision are in
+  `MfaPolicy`. Its default policy asks a principal with a valid token for no second
+  factor. Factor enrolment (WebAuthn, TOTP, recovery) is not in this library.
 - **Multi-tenancy / multi-brand superadmin.** Per-domain CA with per-brand gateway /
   BFF / UI instances. This uses the opt-in multi-issuer path
   (`TenancyResourceServerConfig`) and the fail-closed domain resolution already here.

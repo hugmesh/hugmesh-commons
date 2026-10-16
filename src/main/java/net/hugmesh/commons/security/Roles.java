@@ -223,7 +223,11 @@ public final class Roles {
 
     /**
      * Returns every role name carried by the JWT's {@code roles} claim,
-     * upper-cased and trimmed. Handles both the string-list and
+     * canonicalised the way {@link CasdoorAuthorities} reads it: trimmed,
+     * upper-cased and stripped of ONE leading {@code ROLE_}, so the
+     * platform's own token shape ({@code ROLE_ADMIN}) and the bare spelling
+     * ({@code admin}) are the same role. Entries that are empty once the
+     * prefix is stripped are skipped. Handles both the string-list and
      * role-object shapes emitted by Casdoor. Returns an empty list when
      * the claim is absent or the JWT is {@code null}.
      *
@@ -239,11 +243,13 @@ public final class Roles {
         Object claim = jwt.getClaim("roles");
         if (claim instanceof Collection<?> list) {
             for (Object item : list) {
-                String name = roleNameOf(item);
-                // Skip blank entries so a partially-populated role object
-                // is harmless.
-                if (!name.isBlank()) {
-                    out.add(name.toUpperCase());
+                // Same canonical form the converter mints authorities from,
+                // so a "ROLE_ADMIN" entry is not invisible to has()/isAdmin().
+                // Blank (or bare "ROLE_") entries are skipped so a
+                // partially-populated role object is harmless.
+                String name = CasdoorAuthorities.canonicalRole(roleNameOf(item));
+                if (!name.isEmpty()) {
+                    out.add(name);
                 }
             }
         }
@@ -256,7 +262,9 @@ public final class Roles {
      *
      * @param jwt      the validated JWT to inspect; may be {@code null}
      * @param roleName the role name to look for (case-insensitive,
-     *                 trimmed before comparison)
+     *                 trimmed, one leading {@code ROLE_} ignored, so
+     *                 {@code "ROLE_ADMIN"} and {@code "ADMIN"} ask the same
+     *                 question)
      * @return {@code true} iff the JWT's roles list contains the given
      *         name
      */
@@ -264,7 +272,10 @@ public final class Roles {
         if (jwt == null || roleName == null) {
             return false;
         }
-        String want = roleName.trim().toUpperCase();
+        String want = CasdoorAuthorities.canonicalRole(roleName);
+        if (want.isEmpty()) {
+            return false;
+        }
         for (String r : fromJwt(jwt)) {
             if (r.equals(want)) {
                 return true;
