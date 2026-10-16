@@ -9,6 +9,7 @@ import org.springframework.security.authentication.ReactiveAuthenticationManager
 import org.springframework.security.authentication.ReactiveAuthenticationManagerResolver;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.oauth2.core.OAuth2TokenValidator;
+import org.springframework.security.oauth2.jwt.BadJwtException;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusReactiveJwtDecoder;
@@ -18,6 +19,8 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtIss
 import org.springframework.security.oauth2.server.resource.authentication.JwtReactiveAuthenticationManager;
 import org.springframework.security.oauth2.server.resource.authentication.ReactiveJwtAuthenticationConverter;
 import org.springframework.web.server.ServerWebExchange;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import net.hugmesh.commons.security.CasdoorAuthorities;
@@ -122,6 +125,9 @@ import java.util.concurrent.ConcurrentHashMap;
 // discovery). A valid CSV always contains at least one '='.
 @ConditionalOnExpression("'${app.tenancy.issuers:}'.contains('=')")
 public class TenancyResourceServerConfig {
+
+    private static final Logger LOG =
+            LoggerFactory.getLogger(TenancyResourceServerConfig.class);
 
     /** Registry used to resolve issuer URIs to brand/domain names. */
     private final DomainRegistry domainRegistry;
@@ -527,11 +533,40 @@ public class TenancyResourceServerConfig {
             OAuth2TokenValidator<Jwt> withIssuer =
                     JwtValidators.createDefaultWithIssuer(iss);
             decoder.setJwtValidator(withIssuer);
-            return decoder;
+            return unauthorizedOnKeyFailure(decoder, iss);
         }
         // Per-brand issuer: perform OIDC discovery from the issuer
         // location to obtain its JWKS URI automatically.
         return ReactiveJwtDecoders.fromIssuerLocation(iss);
+    }
+
+    /**
+     * Wraps the discovery-free back-compat decoder so that a failure to
+     * obtain the signing keys (a {@code jwk-set-uri} that is unreachable or
+     * does not belong to the back-compat issuer) is reported as a
+     * {@link BadJwtException}, which the authentication manager turns into a
+     * {@code 401}. Left alone, the failure escapes as an
+     * {@code IllegalStateException} and becomes a {@code 500} with no
+     * diagnostic (hugmesh-commons#9). Nothing is granted either way; a log
+     * line names the issuer and the configured jwk-set-uri.
+     *
+     * @param decoder the discovery-free decoder to wrap
+     * @param issuer  the back-compat issuer, for the log line
+     * @return a decoder whose decode failures are {@link BadJwtException}s
+     */
+    private ReactiveJwtDecoder unauthorizedOnKeyFailure(
+            final NimbusReactiveJwtDecoder decoder, final String issuer) {
+        final String jwks = backCompatJwkSetUri;
+        return token -> decoder.decode(token).onErrorMap(
+                e -> !(e instanceof BadJwtException),
+                e -> {
+                    LOG.warn("Token for issuer {} could not be verified with"
+                            + " jwk-set-uri {}: {}. Check that"
+                            + " jwk-set-uri belongs to issuer-uri.",
+                            issuer, jwks, e.toString());
+                    return new BadJwtException(
+                            "Unable to verify the token signature", e);
+                });
     }
 
     /**

@@ -4,12 +4,24 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.authentication.ReactiveAuthenticationManager;
 import org.springframework.security.authentication.ReactiveAuthenticationManagerResolver;
+import org.springframework.security.oauth2.server.resource.InvalidBearerTokenException;
+import org.springframework.security.oauth2.server.resource.authentication.BearerTokenAuthenticationToken;
+import com.nimbusds.jose.JOSEException;
+import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.JWSHeader;
+import com.nimbusds.jose.crypto.RSASSASigner;
+import com.nimbusds.jose.jwk.RSAKey;
+import com.nimbusds.jose.jwk.gen.RSAKeyGenerator;
+import com.nimbusds.jwt.JWTClaimsSet;
+import com.nimbusds.jwt.SignedJWT;
+import java.util.Date;
 import net.hugmesh.commons.security.DomainRegistry;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Unit test for {@link TenancyResourceServerConfig}'s per-issuer allowlist gate.
@@ -216,6 +228,54 @@ class TenancyResourceServerConfigTest {
             // Same instance, one cache entry keyed by the canonical form.
             assertThat(slashed).isSameAs(bare);
             assertThat(cache).containsOnlyKeys(BRAND_A);
+        }
+    }
+    /**
+     * Issue #9: the back-compat decoder is discovery-free, so a
+     * {@code jwk-set-uri} that does not belong to the back-compat issuer (or
+     * is simply unreachable) makes the key fetch fail. That failure is not a
+     * bad token, but nothing is granted either way, so it must surface as a
+     * {@code 401} (invalid bearer token), not as the authentication-service
+     * error that becomes a {@code 500}.
+     */
+    @Nested
+    class BackCompatKeyFetchFailureIsUnauthorized {
+
+        /** Port 1 refuses the connection at once, so no real host is hit. */
+        private static final String DEAD_JWKS = "http://127.0.0.1:1/jwks";
+
+        private String signedToken(final String issuer)
+                throws JOSEException {
+            RSAKey key = new RSAKeyGenerator(2048).generate();
+            JWTClaimsSet claims = new JWTClaimsSet.Builder()
+                    .issuer(issuer)
+                    .subject("someone")
+                    .expirationTime(new Date(
+                            System.currentTimeMillis() + 600_000L))
+                    .build();
+            SignedJWT jwt = new SignedJWT(
+                    new JWSHeader(JWSAlgorithm.RS256), claims);
+            jwt.sign(new RSASSASigner(key));
+            return jwt.serialize();
+        }
+
+        @Test
+        void unreachableJwkSetUri_isInvalidBearerToken_notAServiceError()
+                throws Exception {
+            DomainRegistry multi = new DomainRegistry(
+                    "", BRAND_A + "=brandx," + BRAND_B + "=brandy");
+            var cfg = new TenancyResourceServerConfig(
+                    multi, BRAND_A, DEAD_JWKS, false, 600000L);
+            var cache = new ConcurrentHashMap<String,
+                    ReactiveAuthenticationManager>();
+            var mgr = resolverFor(cfg, cache).resolve(BRAND_A).block();
+            assertThat(mgr).isNotNull();
+
+            var token = new BearerTokenAuthenticationToken(
+                    signedToken(BRAND_A));
+
+            assertThatThrownBy(() -> mgr.authenticate(token).block())
+                    .isInstanceOf(InvalidBearerTokenException.class);
         }
     }
 }
