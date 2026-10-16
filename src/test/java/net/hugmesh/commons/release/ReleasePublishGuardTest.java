@@ -353,9 +353,10 @@ class ReleasePublishGuardTest {
     // Cross-repo package reads (added 2026-09-18, after adversarial review of the decision
     // 27 round). The prepared chain reads GitHub Packages published from OTHER repositories.
     // secrets.GITHUB_TOKEN is scoped to the repository whose workflow is running, and GitHub
-    // does not grant it cross-repository package access by default: the package must name
-    // this repository under "Manage Actions access", or the build must present a token
-    // carrying read:packages. Nothing in the first cut did either, and the resulting maven
+    // does not grant it cross-repository package access, so the build must present a token
+    // carrying read:packages. Decision 90a = B (2026-09-23): PACKAGES_READ_TOKEN is the only
+    // route; per-package "Manage Actions access" grants are not the plan. Nothing in the
+    // first cut presented such a token, and the resulting maven
     // error is "Could not resolve net.hugmesh:..." — the exact string RELEASING.md teaches a
     // reader to interpret as "the upstream is not published yet". These checks pin the fix.
     // ===================================================================================
@@ -530,9 +531,10 @@ class ReleasePublishGuardTest {
                     .as("<server id=%s> authenticates a READ of packages published from ANOTHER "
                             + "repository. secrets.GITHUB_TOKEN is scoped to the repository whose "
                             + "workflow is running; GitHub does not grant it cross-repo package "
-                            + "access unless that package names this repository under 'Manage "
-                            + "Actions access'. Wiring this server to ${env.GITHUB_TOKEN} makes "
-                            + "the whole chain depend on a click nobody wrote down, and it fails "
+                            + "access (the per-package 'Manage Actions access' grant is not "
+                            + "the plan, decision 90a = B). Wiring this server to "
+                            + "${env.GITHUB_TOKEN} makes the whole chain depend on a credential "
+                            + "that cannot read it, and it fails "
                             + "as 'Could not resolve net.hugmesh:...' — the exact string "
                             + "RELEASING.md teaches a reader to interpret as 'the upstream is not "
                             + "published yet', so the first real run gets MISDIAGNOSED. Use %s / "
@@ -571,9 +573,9 @@ class ReleasePublishGuardTest {
                     .as("step '%s' wires UPSTREAM_PACKAGES_TOKEN to '%s'. It must offer the "
                             + "operator's read:packages PAT FIRST and fall back to the automatic "
                             + "token: ${{ secrets.PACKAGES_READ_TOKEN || secrets.GITHUB_TOKEN }}. "
-                            + "Hardcoding secrets.GITHUB_TOKEN alone puts the chain back on the "
-                            + "per-package 'Manage Actions access' click with no way for an "
-                            + "operator to override it.", step.get("name"), token)
+                            + "Hardcoding secrets.GITHUB_TOKEN alone leaves the chain with a "
+                            + "credential that cannot read other repositories' packages and no "
+                            + "way for an operator to override it.", step.get("name"), token)
                     .contains("secrets.PACKAGES_READ_TOKEN")
                     .contains("secrets.GITHUB_TOKEN");
         }
@@ -584,7 +586,7 @@ class ReleasePublishGuardTest {
     }
 
     @Test
-    @DisplayName("the cross-repo read is preflighted, and both ways to authorise it are written down")
+    @DisplayName("the cross-repo read is preflighted, and the one route to authorise it is written down")
     void crossRepoPackageReadIsPreflightedAndDocumented() throws Exception {
         List<Map<?, ?>> preflights = steps(parseWorkflow(RELEASE_WORKFLOW)).stream()
                 .filter(s -> String.valueOf(s.get("name")).toLowerCase(Locale.ROOT).startsWith("preflight"))
@@ -617,13 +619,20 @@ class ReleasePublishGuardTest {
 
         String releasing = read("RELEASING.md");
         assertThat(releasing)
-                .as("RELEASING.md must name the per-package 'Manage Actions access' grant. It is "
-                        + "a launch-day step that going public does NOT perform for you, and it "
-                        + "sits between 'make the repos public' and 'run one workflow'.")
-                .contains("Manage Actions access");
-        assertThat(releasing)
-                .as("RELEASING.md must name PACKAGES_READ_TOKEN — the other of the two routes, "
-                        + "and the one the workflow reads.")
+                .as("RELEASING.md must name PACKAGES_READ_TOKEN: decision 90a = B made it the sole "
+                        + "route, and it is the credential the workflow reads.")
                 .contains("PACKAGES_READ_TOKEN");
+        assertThat(releasing)
+                .as("RELEASING.md may mention the per-package 'Manage Actions access' grant only "
+                        + "as the route that is not the plan (decision 90a = B). Presenting it as "
+                        + "a launch-day step or an alternative sends the operator to a setting "
+                        + "that is probably not offered for Maven packages.")
+                .contains("*Not the plan:* per-package **Manage Actions access**");
+        String notThePlan = "*Not the plan:* per-package **Manage Actions access**";
+        assertThat(releasing.replaceAll("\\s+", " ").replace(notThePlan, ""))
+                .as("RELEASING.md mentions 'Manage Actions access' outside the '*Not the plan:*' "
+                        + "bullet. Decision 90a = B made PACKAGES_READ_TOKEN the only route, so any "
+                        + "other mention reads as a live option or a launch-day step.")
+                .doesNotContainIgnoringCase("Manage Actions access");
     }
 }
