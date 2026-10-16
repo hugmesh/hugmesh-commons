@@ -21,8 +21,7 @@ tenancy / web classes below.
 The gateway also depends on commons, with an explicit version, but only to pin the
 Boot-4 / Security-7 binary-compat milestone. It keeps its own vendored `Roles` /
 `DomainRegistry` / `CasdoorAuthorities` / `TenancyResourceServerConfig`. A
-class-by-class diff found the gateway's copies are supersets: they carry methods this
-library lacks and the gateway uses (e.g. `isGameMaster`, `usernameOf`, `namesOf`,
+class-by-class diff found the gateway's copies carry methods this library lacks and the gateway uses (e.g. `isGameMaster`, `usernameOf`, `namesOf`,
 `domainForHost`). The commons dependency makes the shared types available to the
 gateway for future use, not current use.
 
@@ -214,8 +213,8 @@ carry it on to the local cache and the registry.
 
 Two pipelines are checked in:
 
-- `.gitlab-ci.yml` runs `verify` as `build:test`. On the default branch and on version
-  tags it then runs `deploy -DskipTests` to the GitLab Maven Package Registry. The
+- `.gitlab-ci.yml` runs `verify` as `build:test`. On the default branch and on any tag
+  it then runs `deploy -DskipTests` to the GitLab Maven Package Registry. The
   deploy step authenticates with the GitLab-injected `CI_JOB_TOKEN`. No secret is
   committed to the repository.
 - `.github/workflows/release.yml` publishes the jar and the `tests` classifier to
