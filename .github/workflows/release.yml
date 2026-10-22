@@ -1,31 +1,114 @@
-# Manual release: build/test hugmesh-commons and publish it to GitHub Packages (Maven
-# registry). This repo had NO GitHub workflow at all until 2026-09-17 — hugmesh/hugmesh-commons#4
-# — which made it the hard stop in the net.hugmesh publish chain: nothing downstream of it
+# Release: build/test hugmesh-commons and publish it to GitHub Packages (Maven registry).
+# This repo had NO GitHub workflow at all until 2026-09-17 (hugmesh/hugmesh-commons#4),
+# which made it the hard stop in the net.hugmesh publish chain: nothing downstream of it
 # could be published because nothing could publish IT.
 #
-# workflow_dispatch ONLY — intentionally never runs on push/tag. Publish-on-merge
-# republishes whatever version pom.xml happens to hold over an already-published, immutable
-# coordinate; that is what forced hugmesh-auth-core's 2.4.2 re-pin.
+# WHAT STARTS A PUBLISH (beta scheme, 2026-10-21). A Maven coordinate is immutable, so a
+# publish happens only when a person pushes a `v<version>` tag whose name equals the
+# <version> in pom.xml (for example v2.2.0-beta.1). There is NO `push: branches` trigger:
+# publish-on-merge would redeploy whatever pom.xml holds over a coordinate that is already
+# out there, which is what forced hugmesh-auth-core's 2.4.2 re-pin.
+#
+#   push tag v<version>             -> version guard, verify, deploy, GitHub prerelease
+#   workflow_dispatch on a v* tag   -> the same (the re-run path; the release step skips
+#                                      itself if that GitHub Release already exists)
+#   workflow_dispatch on main       -> version guard and verify only, nothing published
+#   anything else                   -> the version guard refuses it
+#
+# RUNNER. Every job uses the same runs-on line. It picks vars.RUNS_ON_PUBLISH (a JSON
+# array, for example ["self-hosted","Linux","X64"]) ONLY for a non-PR event on main or on
+# a release tag, and the hosted ubuntu-latest runner for everything else. Deleting the
+# RUNS_ON_PUBLISH variable is the off switch. This workflow has no pull_request trigger
+# and must never get one. The runs-on line keeps OUR jobs off the local runner; it is not
+# a security boundary against fork pull requests (a fork runs its own copy of the file).
+# That boundary is the runner group's settings.
+#
+# A SELF-HOSTED RUNNER SHARES THE HOST'S HOME DIRECTORY. So nothing here writes to ~/.m2:
+# setup-java writes its settings.xml under runner.temp (its default, ~/.m2/settings.xml,
+# would overwrite the host's own file), there is no `cache: maven` (it restores an archive
+# over ~/.m2/repository), every maven command uses a local repository under RUNNER_TEMP,
+# and both maven steps set MAVEN_USER_HOME under runner.temp so that mvnw unpacks its
+# Maven download there instead of ~/.m2/wrapper. The runner empties RUNNER_TEMP after
+# each job.
 #
 # LINK 3 OF 4. The chain is
-#   hugmesh-build-config 0.5.0 -> hugmesh-parent 2.8.0 -> hugmesh-commons 2.1.0
-#     -> hugmesh-auth-core 2.5.1
-# and hugmesh-auth-core/.github/workflows/release-chain.yml fires all four in that order
-# from a single trigger. Operator decision 27 (hugmesh-generator#347, 2026-09-17):
-# "B for the mechanism, A prepared" — source-building stays the mechanism, this path is
-# real but unfired. See RELEASING.md here and hugmesh-auth-core/RELEASING.md sections 3.2/6.
+#   hugmesh-build-config 0.6.0-beta.1 -> hugmesh-parent 2.9.0-beta.1
+#     -> hugmesh-commons 2.2.0-beta.1 -> hugmesh-auth-core 2.6.0-beta.1
+# and each link is tagged and published in that order. See RELEASING.md here and
+# hugmesh-auth-core/RELEASING.md.
 name: Release
 
 on:
+  push:
+    tags: ['v*']
   workflow_dispatch: {}
 
 permissions:
   contents: read
-  packages: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
+  version:
+    runs-on: ${{ fromJSON(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/tags/studio-v')) && vars.RUNS_ON_PUBLISH || '"ubuntu-latest"') }}
+    outputs:
+      version: ${{ steps.guard.outputs.version }}
+      kind: ${{ steps.guard.outputs.kind }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Reads <project><version>, never the <parent> version, by parsing the XML.
+      - name: Read version from pom.xml
+        id: pom
+        run: |
+          set -euo pipefail
+          version=$(python3 -c 'import sys, xml.etree.ElementTree as ET; ns={"m": "http://maven.apache.org/POM/4.0.0"}; print(ET.parse("pom.xml").getroot().findtext("m:version", namespaces=ns).strip())')
+          echo "pom.xml version: ${version}"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      # The decision. ReleasePublishGuardTest runs this exact script under bash with a
+      # table of refs and versions, so keep it free of ${{ }} expressions: it reads only
+      # VERSION, GITHUB_REF and GITHUB_OUTPUT.
+      - name: Version guard
+        id: guard
+        env:
+          VERSION: ${{ steps.pom.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-beta\.[0-9]+)?$ ]]; then
+            echo "::error::pom.xml version '${VERSION}' is not MAJOR.MINOR.PATCH or MAJOR.MINOR.PATCH-beta.N. SNAPSHOT and other forms are never published."
+            exit 1
+          fi
+          case "${GITHUB_REF}" in
+            refs/tags/v*)
+              tag_version="${GITHUB_REF#refs/tags/v}"
+              if [ "${tag_version}" != "${VERSION}" ]; then
+                echo "::error::tag v${tag_version} does not match pom.xml version ${VERSION}. Fix the tag or the pom; nothing was published."
+                exit 1
+              fi
+              kind=release
+              ;;
+            refs/heads/main)
+              kind=main
+              ;;
+            *)
+              echo "::error::${GITHUB_REF} is neither main nor a v<version> tag. Releases run from a v* tag; a dispatch on main only verifies."
+              exit 1
+              ;;
+          esac
+          echo "kind=${kind} version=${VERSION}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "kind=${kind}" >> "$GITHUB_OUTPUT"
+
   build-and-publish:
-    runs-on: ubuntu-latest
+    needs: version
+    runs-on: ${{ fromJSON(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/tags/studio-v')) && vars.RUNS_ON_PUBLISH || '"ubuntu-latest"') }}
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -36,10 +119,11 @@ jobs:
           distribution: temurin
           # 25 — hugmesh-parent's <java.version>, which this artifact compiles against.
           java-version: "25"
-          cache: maven
-          # setup-java's generated ~/.m2/settings.xml is NOT what authenticates this build:
+          # setup-java's generated settings.xml is NOT what authenticates this build:
           # both mvn calls below pass `-s .github/maven-ci-settings.xml`, and `-s` REPLACES
           # the user settings file. The servers that matter live in that file.
+          # settings-path keeps the generated file out of ~/.m2 (see the header).
+          settings-path: ${{ runner.temp }}
           server-id: github
           server-username: GITHUB_ACTOR
           server-password: GITHUB_TOKEN
@@ -52,7 +136,7 @@ jobs:
       # hand it cross-repository package access automatically: the build must present a
       # token carrying read:packages, which is the PACKAGES_READ_TOKEN secret (a classic
       # PAT with read:packages; decision 90a = B). If it is not set, maven fails with
-      #     Could not resolve net.hugmesh:hugmesh-parent:pom:2.8.0
+      #     Could not resolve net.hugmesh:hugmesh-parent:pom:2.9.0-beta.1
       # which is the SAME string this repo's RELEASING.md and the comments below teach a
       # reader to interpret as "the upstream is not published yet". A reader who believes
       # that goes and re-publishes an upstream that is already there, and hits the same wall.
@@ -104,18 +188,19 @@ jobs:
           exit ${rc}
 
       # -s .github/maven-ci-settings.xml is required. The effective repository list of
-      # this project is Maven Central alone, and net.hugmesh:hugmesh-parent:2.8.0 (this
-      # pom's own <parent>) and net.hugmesh:hugmesh-build-config:0.5.0 (the analysers'
-      # ruleset jar, on the PMD/Checkstyle/SpotBugs PLUGIN classpaths) are both 404 there.
+      # this project is Maven Central alone, and net.hugmesh:hugmesh-parent (this pom's
+      # own <parent>) and net.hugmesh:hugmesh-build-config (the analysers' ruleset jar, on
+      # the PMD/Checkstyle/SpotBugs PLUGIN classpaths) are both 404 there.
       # A <repositories> block in pom.xml is NOT the alternative: maven.pkg.github.com
       # answers 401 to an unauthenticated GET, so that would break every developer build and
       # hugmesh-generator/tests/stack/m2-bootstrap.sh.
       #
-      # Testcontainers note: PostgresTestSupport starts a real Postgres, and ubuntu-latest
-      # runners ship a working Docker daemon, so `verify` runs the full suite here.
+      # verify runs on every ref the version guard lets through, so a dispatch on main is a
+      # real build-and-test of main with nothing published.
       - name: Build and test
-        run: ./mvnw -B -ntp -s .github/maven-ci-settings.xml verify
+        run: ./mvnw -B -ntp -s .github/maven-ci-settings.xml -Dmaven.repo.local="${RUNNER_TEMP}/m2-repository" verify
         env:
+          MAVEN_USER_HOME: ${{ runner.temp }}/maven-user-home
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Cross-repo READS use their own credential - see the settings file header
@@ -126,9 +211,9 @@ jobs:
 
       # TWO ARTIFACTS COME OUT OF THIS STEP, and the second one is easy to lose.
       # pom.xml binds maven-jar-plugin's `test-jar` goal (execution `shared-test-base`), so
-      # `deploy` uploads hugmesh-commons-2.1.0.jar AND hugmesh-commons-2.1.0-tests.jar.
+      # `deploy` uploads hugmesh-commons-<version>.jar AND hugmesh-commons-<version>-tests.jar.
       # hugmesh-auth-core's test scope compiles against
-      # net.hugmesh:hugmesh-commons:2.1.0:tests (PostgresTestSupport), so a publish without
+      # net.hugmesh:hugmesh-commons:<version>:tests (PostgresTestSupport), so a publish without
       # the classifier breaks the NEXT link of the chain, and breaks it at test-compile
       # where it reads like an auth-core problem.
       #
@@ -142,9 +227,14 @@ jobs:
       # ${env.CI_API_V4_URL}/projects/${env.CI_PROJECT_ID}/packages/maven anywhere outside
       # GitLab CI — wrong registry AND a server id ('gitlab-maven') nothing has credentials
       # for.
+      #
+      # Runs ONLY when the version guard said kind=release, which means the ref is a
+      # v<version> tag equal to pom.xml's version.
       - name: Publish jar and tests classifier to GitHub Packages
-        run: ./mvnw -B -ntp -s .github/maven-ci-settings.xml deploy -DskipTests -DaltDeploymentRepository=github::default::https://maven.pkg.github.com/${{ github.repository }}
+        if: needs.version.outputs.kind == 'release'
+        run: ./mvnw -B -ntp -s .github/maven-ci-settings.xml -Dmaven.repo.local="${RUNNER_TEMP}/m2-repository" deploy -DskipTests -DaltDeploymentRepository=github::default::https://maven.pkg.github.com/${{ github.repository }}
         env:
+          MAVEN_USER_HOME: ${{ runner.temp }}/maven-user-home
           GITHUB_ACTOR: ${{ github.actor }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Cross-repo READS use their own credential - see the settings file header
@@ -152,3 +242,30 @@ jobs:
           # unset; the preflight step above reports that case.
           UPSTREAM_PACKAGES_ACTOR: ${{ secrets.PACKAGES_READ_ACTOR || github.actor }}
           UPSTREAM_PACKAGES_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN || secrets.GITHUB_TOKEN }}
+
+  # A GitHub Release for the tag, marked prerelease and never "latest" while the version
+  # is a beta. Re-running on the same tag skips the create instead of failing.
+  github-release:
+    needs: [version, build-and-publish]
+    if: needs.version.outputs.kind == 'release'
+    runs-on: ${{ fromJSON(github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/tags/studio-v')) && vars.RUNS_ON_PUBLISH || '"ubuntu-latest"') }}
+    permissions:
+      contents: write
+    steps:
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            echo "GitHub Release ${TAG} already exists; leaving it as it is."
+            exit 0
+          fi
+          flags=(--verify-tag --title "hugmesh-commons ${VERSION}" --notes "net.hugmesh:hugmesh-commons:${VERSION} and its tests classifier, published to GitHub Packages.")
+          case "${VERSION}" in
+            *-*) flags+=(--prerelease --latest=false) ;;
+          esac
+          gh release create "${TAG}" "${flags[@]}"

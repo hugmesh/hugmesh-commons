@@ -36,10 +36,14 @@ import static org.assertj.core.api.Assertions.assertThat;
  * thing.
  *
  * <ol>
- *   <li><b>No workflow fires on its own.</b> Publish-on-merge republishes whatever version
+ *   <li><b>Only a person publishes.</b> Publish-on-merge republishes whatever version
  *       {@code pom.xml} holds over an already-published, immutable coordinate — the failure
- *       that forced hugmesh-auth-core's 2.4.2 re-pin. The check is an ALLOWLIST over EVERY
- *       workflow file, not a blacklist of {@code push} spellings in one of them.</li>
+ *       that forced hugmesh-auth-core's 2.4.2 re-pin. A publishing workflow may carry only
+ *       {@code workflow_dispatch} and a {@code push} that is restricted to {@code v*} TAGS
+ *       (the beta scheme of 2026-10-21: the tag is the decision to publish). The check is an
+ *       ALLOWLIST over EVERY workflow file, not a blacklist of {@code push} spellings in one
+ *       of them, and the deploy step itself runs only when the version guard said the ref
+ *       is a {@code v<version>} tag equal to {@code pom.xml}'s version.</li>
  *   <li><b>Resolution is CI-only.</b> {@code maven.pkg.github.com} answers 401 to an
  *       unauthenticated GET (measured 2026-09-17; 401 again with a classic token lacking
  *       {@code read:packages}), so its URL may appear ONLY in
@@ -48,7 +52,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  *       {@code hugmesh-generator/tests/stack/m2-bootstrap.sh}, the cold compose build that
  *       operator decision 27 deliberately KEEPS as the mechanism.</li>
  *   <li><b>Both artifacts ship.</b> hugmesh-auth-core's test scope compiles against
- *       {@code net.hugmesh:hugmesh-commons:2.1.0:tests}. The {@code tests} classifier comes
+ *       {@code net.hugmesh:hugmesh-commons:<version>:tests}. The {@code tests} classifier comes
  *       from maven-jar-plugin's {@code test-jar} goal, which packages {@code target/test-classes}
  *       — so {@code -DskipTests} (skips execution, still compiles) is correct and
  *       {@code -Dmaven.test.skip=true} (skips compilation too) would publish an EMPTY
@@ -72,8 +76,12 @@ class ReleasePublishGuardTest {
     private static final String DEPLOY_OVERRIDE =
             "-DaltDeploymentRepository=github::default::https://maven.pkg.github.com/";
 
-    /** The only trigger any workflow here may carry. Anything else publishes without a human. */
-    private static final Set<String> ONLY_ALLOWED_TRIGGER = Set.of("workflow_dispatch");
+    /**
+     * The only triggers a publishing workflow may carry. {@code push} is allowed ONLY in its
+     * tag-restricted form (see {@link #assertPushIsTagOnly}); anything else publishes without
+     * a human deciding to.
+     */
+    private static final Set<String> ALLOWED_TRIGGERS = Set.of("workflow_dispatch", "push");
 
     /** The links BEFORE this one. commons resolves these two and never itself. */
     private static final List<String> UPSTREAM_REPOS =
@@ -221,7 +229,7 @@ class ReleasePublishGuardTest {
         assertThat(repoRoot().resolve(CI_SETTINGS))
                 .as("%s must exist — it is the whole resolution route for a CI build. The "
                         + "effective repository list here is Maven Central alone, and this "
-                        + "pom's own <parent> net.hugmesh:hugmesh-parent:2.8.0 is 404 there.",
+                        + "pom's own <parent> net.hugmesh:hugmesh-parent is 404 there.",
                         CI_SETTINGS)
                 .exists();
 
@@ -331,7 +339,7 @@ class ReleasePublishGuardTest {
         assertThat(boundGoals)
                 .as("pom.xml no longer binds maven-jar-plugin's `test-jar` goal, so no "
                         + "`tests` classifier is produced. hugmesh-auth-core's test scope "
-                        + "compiles against net.hugmesh:hugmesh-commons:2.1.0:tests "
+                        + "compiles against net.hugmesh:hugmesh-commons:<version>:tests "
                         + "(PostgresTestSupport) — dropping it breaks the NEXT link of the "
                         + "chain, at test-compile, where it reads like an auth-core problem. "
                         + "Bound goals found: %s", boundGoals)
@@ -480,8 +488,8 @@ class ReleasePublishGuardTest {
     }
 
     @Test
-    @DisplayName("every workflow that CAN publish is dispatch-only — and release.yml is always classified as one")
-    void everyPublishingWorkflowIsDispatchOnly() throws Exception {
+    @DisplayName("every workflow that CAN publish starts only by dispatch or a v* tag push — and release.yml is always classified as one")
+    void everyPublishingWorkflowIsDispatchOrTagOnly() throws Exception {
         List<String> publishing = new ArrayList<>();
         List<String> exempt = new ArrayList<>();
         for (Path file : workflowFiles()) {
@@ -491,24 +499,326 @@ class ReleasePublishGuardTest {
                 continue;
             }
             publishing.add(relative);
-            Set<String> triggers = triggerNames(parseWorkflow(relative), relative);
-            assertThat(triggers)
+            Map<?, ?> workflow = parseWorkflow(relative);
+            Set<String> triggers = triggerNames(workflow, relative);
+            assertThat(ALLOWED_TRIGGERS)
                     .as("%s can publish an immutable coordinate and declares triggers %s. "
-                            + "Any trigger other than workflow_dispatch — push, pull_request, "
-                            + "release, schedule, workflow_run, repository_dispatch — republishes "
-                            + "whatever version pom.xml happens to hold over a coordinate that is "
-                            + "already out there. If a new trigger is deliberate, widen "
-                            + "ONLY_ALLOWED_TRIGGER in the same change and say why in RELEASING.md. "
-                            + "(Workflows this run treated as NON-publishing, and therefore free to "
-                            + "carry any trigger: %s — see canPublish().)",
+                            + "Only workflow_dispatch and a v*-tag-only push are allowed — "
+                            + "pull_request, release, schedule, workflow_run, repository_dispatch "
+                            + "or a branch push republishes whatever version pom.xml happens to "
+                            + "hold over a coordinate that is already out there. If a new trigger "
+                            + "is deliberate, widen ALLOWED_TRIGGERS in the same change and say "
+                            + "why in RELEASING.md. (Workflows this run treated as NON-publishing, "
+                            + "and therefore free to carry any trigger: %s — see canPublish().)",
                             relative, triggers, exempt)
-                    .containsExactlyInAnyOrderElementsOf(ONLY_ALLOWED_TRIGGER);
+                    .containsAll(triggers);
+            assertThat(triggers)
+                    .as("%s must keep workflow_dispatch: it is the re-run path for a tag whose "
+                            + "first run failed. Declared: %s", relative, triggers)
+                    .contains("workflow_dispatch");
+            if (triggers.contains("push")) {
+                assertPushIsTagOnly(onBlock(workflow), relative);
+            }
         }
         assertThat(publishing)
                 .as("canPublish() exempted the release workflow itself, so this guard just passed "
                         + "vacuously over the one file it exists for. Classified as publishing: %s; "
                         + "exempt: %s.", publishing, exempt)
                 .contains(RELEASE_WORKFLOW);
+    }
+
+    /** The parsed {@code on:} value ({@code on} is a YAML 1.1 boolean, see the class doc). */
+    private static Object onBlock(Map<?, ?> workflow) {
+        return workflow.containsKey(Boolean.TRUE) ? workflow.get(Boolean.TRUE) : workflow.get("on");
+    }
+
+    /**
+     * A {@code push} trigger fires on EVERY branch and tag push unless it is narrowed. The
+     * only acceptable shape is a mapping whose sole key is {@code tags}, every pattern of
+     * which starts with {@code v} followed by a digit or a glob — so no {@code branches},
+     * no {@code branches-ignore}, no {@code tags-ignore} and no {@code paths} (a
+     * {@code paths}-only push still fires on every branch).
+     */
+    private static void assertPushIsTagOnly(Object on, String relative) {
+        assertThat(on)
+                .as("%s lists `push` without any filter (list or scalar form of `on:`), so it "
+                        + "fires on every branch push — publish-on-merge.", relative)
+                .isInstanceOf(Map.class);
+        Object push = ((Map<?, ?>) on).get("push");
+        assertThat(push)
+                .as("%s has `push:` with no filter at all, which fires on every branch push.",
+                        relative)
+                .isInstanceOf(Map.class);
+        Map<?, ?> pushMap = (Map<?, ?>) push;
+        assertThat(pushMap.keySet().stream().map(String::valueOf).toList())
+                .as("%s: `push:` must be narrowed by `tags:` and nothing else. `branches` "
+                        + "publishes on merge; `paths`/`tags-ignore`/`branches-ignore` widen it "
+                        + "back to branch pushes. Declared keys: %s", relative, pushMap.keySet())
+                .containsExactly("tags");
+        Object tags = pushMap.get("tags");
+        assertThat(tags).as("%s: `push.tags` must be a non-empty list", relative)
+                .isInstanceOf(List.class);
+        assertThat((List<?>) tags).as("%s: `push.tags` is empty", relative).isNotEmpty();
+        for (Object pattern : (List<?>) tags) {
+            assertThat(String.valueOf(pattern))
+                    .as("%s: tag pattern '%s' must start with `v` (the v<version> release tag); "
+                            + "a bare `*` or `**` makes every tag a publish.", relative, pattern)
+                    .matches("v[0-9*].*");
+        }
+    }
+
+    // ===================================================================================
+    // Beta scheme (2026-10-21). The tag push above is only safe because of three more
+    // things: the deploy step runs only on kind=release, the version guard that sets kind
+    // refuses every ref except main and a v<version> tag equal to pom.xml's version, and a
+    // self-hosted runner is chosen only for a non-PR event on main or a release tag.
+    // ===================================================================================
+
+    /** The exact runs-on line every job of the release workflow uses (beta scheme 3.1). */
+    static final String PUBLISH_RUNS_ON = "${{ fromJSON(github.event_name != 'pull_request' "
+            + "&& github.event_name != 'pull_request_target' && (github.ref == 'refs/heads/main' "
+            + "|| startsWith(github.ref, 'refs/tags/v') || startsWith(github.ref, 'refs/tags/studio-v')) "
+            + "&& vars.RUNS_ON_PUBLISH || '\"ubuntu-latest\"') }}";
+
+    private static Map<?, ?> jobs(Map<?, ?> workflow, String name) {
+        Object jobs = workflow.get("jobs");
+        assertThat(jobs).as("%s declares no jobs", name).isInstanceOf(Map.class);
+        return (Map<?, ?>) jobs;
+    }
+
+    @Test
+    @DisplayName("the deploy step runs only when the version guard said kind=release")
+    void deployRunsOnlyForAReleaseTag() throws Exception {
+        Map<?, ?> workflow = parseWorkflow(RELEASE_WORKFLOW);
+        int deploys = 0;
+        for (Map.Entry<?, ?> job : jobs(workflow, RELEASE_WORKFLOW).entrySet()) {
+            if (!(job.getValue() instanceof Map<?, ?> jobMap)
+                    || !(jobMap.get("steps") instanceof Iterable<?> list)) {
+                continue;
+            }
+            for (Object step : list) {
+                if (step instanceof Map<?, ?> stepMap && stepMap.get("run") instanceof String run
+                        && run.matches("(?s).*\\bdeploy\\b.*")) {
+                    deploys++;
+                    String condition = String.valueOf(stepMap.get("if")) + " " + String.valueOf(jobMap.get("if"));
+                    assertThat(condition.replaceAll("\\s+", ""))
+                            .as("step '%s' in job '%s' deploys, but neither it nor its job is "
+                                    + "gated on `needs.version.outputs.kind == 'release'`. Without "
+                                    + "that, a dispatch on main deploys pom.xml's version — the "
+                                    + "publish-without-a-tag this scheme exists to prevent. "
+                                    + "Conditions found: %s", stepMap.get("name"), job.getKey(), condition)
+                            .contains("needs.version.outputs.kind=='release'");
+                    assertThat(String.valueOf(jobMap.get("needs")))
+                            .as("job '%s' deploys but does not need the `version` job, so "
+                                    + "needs.version.outputs.kind is always empty.", job.getKey())
+                            .contains("version");
+                }
+            }
+        }
+        assertThat(deploys).as("no deploy step found — this guard passed vacuously").isPositive();
+    }
+
+    /** The {@code run:} script of the step with this id, in any job. */
+    private static String stepScript(Map<?, ?> workflow, String stepId) {
+        for (Map<?, ?> step : steps(workflow)) {
+            if (stepId.equals(String.valueOf(step.get("id"))) && step.get("run") instanceof String run) {
+                return run;
+            }
+        }
+        throw new AssertionError("no step with id '" + stepId + "' and a run: script in "
+                + RELEASE_WORKFLOW + " — the version guard is gone");
+    }
+
+    private record GuardRun(int exit, String output, String stdout) { }
+
+    private static GuardRun runVersionGuard(String script, String ref, String version) throws Exception {
+        Path dir = Files.createTempDirectory("version-guard");
+        try {
+            Path scriptFile = dir.resolve("guard.sh");
+            Path out = dir.resolve("github_output");
+            Files.writeString(scriptFile, script, StandardCharsets.UTF_8);
+            Files.writeString(out, "", StandardCharsets.UTF_8);
+            ProcessBuilder pb = new ProcessBuilder("bash", "-e", scriptFile.toString())
+                    .directory(dir.toFile())
+                    .redirectErrorStream(true);
+            pb.environment().put("GITHUB_REF", ref);
+            pb.environment().put("VERSION", version);
+            pb.environment().put("GITHUB_OUTPUT", out.toString());
+            Process p = pb.start();
+            String stdout = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            int exit = p.waitFor();
+            return new GuardRun(exit, Files.readString(out, StandardCharsets.UTF_8), stdout);
+        } finally {
+            try (Stream<Path> files = Files.list(dir)) {
+                for (Path f : files.toList()) {
+                    Files.deleteIfExists(f);
+                }
+            }
+            Files.deleteIfExists(dir);
+        }
+    }
+
+    private static boolean bashAvailable() {
+        try {
+            return new ProcessBuilder("bash", "-c", "exit 0").start().waitFor() == 0;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    @Test
+    @DisplayName("the version guard publishes only a v<version> tag equal to the pom version, and refuses every other ref")
+    void versionGuardDecidesFromRefAndPomVersion() throws Exception {
+        org.junit.jupiter.api.Assumptions.assumeTrue(bashAvailable(),
+                "bash is not on PATH here, so the guard script cannot be executed");
+        String script = stepScript(parseWorkflow(RELEASE_WORKFLOW), "guard");
+        assertThat(script)
+                .as("the version guard must read only env vars; a ${{ }} expression in it is "
+                        + "substituted by Actions and would make this test run a different "
+                        + "script than the runner does")
+                .doesNotContain("${{");
+
+        GuardRun release = runVersionGuard(script, "refs/tags/v2.2.0-beta.1", "2.2.0-beta.1");
+        assertThat(release.exit()).as("matching beta tag must pass: %s", release.stdout()).isZero();
+        assertThat(release.output()).contains("kind=release").contains("version=2.2.0-beta.1");
+
+        GuardRun fin = runVersionGuard(script, "refs/tags/v2.2.0", "2.2.0");
+        assertThat(fin.exit()).as("matching final tag must pass: %s", fin.stdout()).isZero();
+        assertThat(fin.output()).contains("kind=release");
+
+        GuardRun main = runVersionGuard(script, "refs/heads/main", "2.2.0-beta.1");
+        assertThat(main.exit()).as("dispatch on main must pass as a verify-only run: %s", main.stdout()).isZero();
+        assertThat(main.output()).contains("kind=main").doesNotContain("kind=release");
+
+        String[][] refused = {
+            {"refs/tags/v2.2.0-beta.2", "2.2.0-beta.1", "tag does not match the pom"},
+            {"refs/tags/v2.2.0", "2.2.0-beta.1", "final tag on a beta pom"},
+            {"refs/tags/2.2.0-beta.1", "2.2.0-beta.1", "tag without the v prefix"},
+            {"refs/tags/studio-v2.2.0-beta.1", "2.2.0-beta.1", "another artifact's tag prefix"},
+            {"refs/heads/feature/x", "2.2.0-beta.1", "a feature branch"},
+            {"refs/heads/mainline", "2.2.0-beta.1", "a branch that only starts with main"},
+            {"refs/pull/7/merge", "2.2.0-beta.1", "a pull request ref"},
+            {"refs/tags/v2.2.0-SNAPSHOT", "2.2.0-SNAPSHOT", "a SNAPSHOT version"},
+            {"refs/heads/main", "2.2.0-SNAPSHOT", "a SNAPSHOT version on main"},
+            {"refs/tags/v2.2.0-rc.1", "2.2.0-rc.1", "a version outside the beta scheme"},
+            {"refs/tags/v", "", "an empty version"},
+        };
+        for (String[] c : refused) {
+            GuardRun r = runVersionGuard(script, c[0], c[1]);
+            assertThat(r.exit())
+                    .as("the version guard must REFUSE %s (ref %s, pom version '%s'), but exited 0 "
+                            + "with outputs %s", c[2], c[0], c[1], r.output())
+                    .isNotZero();
+            assertThat(r.output())
+                    .as("a refused run must not set kind (ref %s)", c[0])
+                    .doesNotContain("kind=");
+        }
+    }
+
+    @Test
+    @DisplayName("pom.xml carries a version the release guard can publish (MAJOR.MINOR.PATCH[-beta.N])")
+    void pomVersionFollowsTheBetaScheme() throws Exception {
+        Node project = parseXml("pom.xml").getDocumentElement();
+        String version = null;
+        NodeList kids = project.getChildNodes();
+        for (int i = 0; i < kids.getLength(); i++) {
+            if (kids.item(i).getNodeType() == Node.ELEMENT_NODE
+                    && "version".equals(kids.item(i).getNodeName())) {
+                version = kids.item(i).getTextContent().trim();
+            }
+        }
+        assertThat(version)
+                .as("pom.xml <project><version> must be MAJOR.MINOR.PATCH-beta.N (or a final "
+                        + "MAJOR.MINOR.PATCH): the release workflow's version guard refuses "
+                        + "anything else, SNAPSHOT included, so a tag for it could never publish.")
+                .isNotNull()
+                .matches("\\d+\\.\\d+\\.\\d+(-beta\\.\\d+)?");
+    }
+
+    @Test
+    @DisplayName("release jobs pick the local runner only through the guarded runs-on line")
+    void releaseJobsUseTheGuardedRunsOnLine() throws Exception {
+        Map<?, ?> workflow = parseWorkflow(RELEASE_WORKFLOW);
+        for (Map.Entry<?, ?> job : jobs(workflow, RELEASE_WORKFLOW).entrySet()) {
+            assertThat(job.getValue()).isInstanceOf(Map.class);
+            assertThat(String.valueOf(((Map<?, ?>) job.getValue()).get("runs-on")))
+                    .as("job '%s' in %s must use exactly the beta-scheme runs-on line, which picks "
+                            + "vars.RUNS_ON_PUBLISH only for a non-PR event on main or a release "
+                            + "tag and hosted ubuntu-latest otherwise", job.getKey(), RELEASE_WORKFLOW)
+                    .isEqualTo(PUBLISH_RUNS_ON);
+        }
+        assertThat(triggerNames(workflow, RELEASE_WORKFLOW))
+                .as("%s must never run on pull requests: a self-hosted runner must not run PR code",
+                        RELEASE_WORKFLOW)
+                .doesNotContain("pull_request", "pull_request_target");
+    }
+
+    @Test
+    @DisplayName("no workflow asks for a self-hosted runner outside the guarded line")
+    void noWorkflowReadsRunsOnOrHardcodesSelfHosted() throws Exception {
+        for (Path file : workflowFiles()) {
+            String relative = repoRoot().relativize(file).toString().replace('\\', '/');
+            for (Map.Entry<?, ?> job : jobs(parseWorkflow(relative), relative).entrySet()) {
+                if (!(job.getValue() instanceof Map<?, ?> jobMap)) {
+                    continue;
+                }
+                String runsOn = String.valueOf(jobMap.get("runs-on"));
+                if (runsOn.equals(PUBLISH_RUNS_ON)) {
+                    continue;
+                }
+                assertThat(runsOn)
+                        .as("job '%s' in %s: runs-on '%s' reaches a self-hosted runner without the "
+                                + "event/ref guard. PR jobs must say ubuntu-latest literally, and "
+                                + "vars.RUNS_ON is retired (beta scheme 3.2).", job.getKey(), relative, runsOn)
+                        .doesNotContain("self-hosted")
+                        .doesNotContain("RUNS_ON");
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("release.yml never writes to the runner host's ~/.m2")
+    void releaseLeavesTheHostMavenHomeAlone() throws Exception {
+        Map<?, ?> workflow = parseWorkflow(RELEASE_WORKFLOW);
+        for (String cmd : mavenCommands()) {
+            assertThat(cmd)
+                    .as("every maven command must use a local repository under RUNNER_TEMP. On a "
+                            + "self-hosted runner ~/.m2/repository is the host's own, shared with "
+                            + "every offline build there. Offending command: %s", cmd)
+                    .contains("-Dmaven.repo.local=\"${RUNNER_TEMP}/");
+        }
+        int mvnwSteps = 0;
+        for (Map<?, ?> step : steps(workflow)) {
+            if (step.get("run") instanceof String run && run.contains("./mvnw")) {
+                mvnwSteps++;
+                Map<?, ?> env = step.get("env") instanceof Map<?, ?> e ? e : Map.of();
+                assertThat(String.valueOf(env.get("MAVEN_USER_HOME")))
+                        .as("step '%s' runs ./mvnw without MAVEN_USER_HOME under runner.temp. "
+                                + "mvnw then unpacks its Maven download into ~/.m2/wrapper, the "
+                                + "host's own on a self-hosted runner. env: %s", step.get("name"), env)
+                        .contains("runner.temp");
+            }
+        }
+        assertThat(mvnwSteps).as("no ./mvnw step - this guard passed vacuously").isPositive();
+        int setupJava = 0;
+        for (Map<?, ?> step : steps(workflow)) {
+            if (String.valueOf(step.get("uses")).startsWith("actions/setup-java")) {
+                setupJava++;
+                Map<?, ?> with = step.get("with") instanceof Map<?, ?> w ? w : Map.of();
+                assertThat(with.containsKey("cache"))
+                        .as("setup-java `cache:` restores an archive over ~/.m2/repository, the "
+                                + "host's own on a self-hosted runner. with: %s", with)
+                        .isFalse();
+                if (with.containsKey("server-id")) {
+                    assertThat(String.valueOf(with.get("settings-path")))
+                            .as("setup-java with server-id writes settings.xml to settings-path, "
+                                    + "which defaults to ~/.m2 — on a self-hosted runner that "
+                                    + "overwrites the host's own ~/.m2/settings.xml. with: %s", with)
+                            .contains("runner.temp");
+                }
+            }
+        }
+        assertThat(setupJava).as("no setup-java step — this guard passed vacuously").isPositive();
     }
 
     @Test

@@ -13,7 +13,7 @@ import org.testcontainers.utility.DockerImageName;
 /**
  * Canonical shared Testcontainers-Postgres base for every HugMesh integration
  * slice. Published as a TEST-JAR so consumers depend on
- * {@code net.hugmesh:hugmesh-commons:2.1.0:tests} (test scope) and
+ * {@code net.hugmesh:hugmesh-commons:<version>:tests} (test scope) and
  * simply {@code extends PostgresTestSupport} — ONE base class, ONE container, for
  * the whole org.
  *

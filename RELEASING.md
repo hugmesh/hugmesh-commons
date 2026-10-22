@@ -3,13 +3,56 @@
 `net.hugmesh:hugmesh-commons` is **link 3 of 4** in the org's Maven publish chain:
 
 ```
-hugmesh-build-config 0.5.0  ->  hugmesh-parent 2.8.0  ->  hugmesh-commons 2.1.0  ->  hugmesh-auth-core 2.5.1
+hugmesh-build-config 0.6.0-beta.1  ->  hugmesh-parent 2.9.0-beta.1  ->  hugmesh-commons 2.2.0-beta.1  ->  hugmesh-auth-core 2.6.0-beta.1
 ```
+
+Each link is published in that order, and each one only after the link before it is
+readable from GitHub Packages: this pom's `<parent>` is `hugmesh-parent:2.9.0-beta.1`, so
+commons cannot even build in CI until the parent beta is published.
 
 Until 2026-09-17 this repo had **no GitHub workflow at all**
 (`gh api repos/hugmesh/hugmesh-commons/contents/.github/workflows` → 404), which made it
 the hard stop in the chain: nothing downstream could be published because nothing could
 publish *it*. That is hugmesh/hugmesh-commons#4.
+
+## Versions and how a beta is cut (2026-10-21)
+
+The version is `MAJOR.MINOR.PATCH-beta.N`, never SNAPSHOT and never with `+build` metadata.
+2.1.0 was pinned by fourteen consumers and its content changed after the pin, so the
+betas go on the next minor: the first is **`2.2.0-beta.1`**. A fix during the beta raises N
+(`2.2.0-beta.2`), not PATCH. Maven orders these as
+`2.1.0 < 2.2.0-beta.1 < 2.2.0-beta.2 < 2.2.0-beta.10 < 2.2.0`.
+
+A publish is a **tag**, pushed by a person, whose name is `v` plus the `<version>` in
+`pom.xml`:
+
+```
+git tag -a v2.2.0-beta.1 -m "hugmesh-commons 2.2.0-beta.1" <commit on main>
+git push origin v2.2.0-beta.1
+```
+
+What `release.yml` does with each event:
+
+| Event | What happens |
+|---|---|
+| push of tag `v<version>` | version guard, `verify`, `deploy` (jar + `tests` classifier), GitHub Release marked prerelease and not latest |
+| `workflow_dispatch` on a `v*` tag | the same; this is the re-run path, and the release step skips itself if that GitHub Release exists |
+| `workflow_dispatch` on `main` | version guard and `verify` only; nothing is published |
+| push to a branch, any other ref | nothing starts (no branch trigger), or the version guard refuses it |
+
+The version guard fails the run when the tag does not equal `pom.xml`'s version, when the
+version is not `MAJOR.MINOR.PATCH` or `MAJOR.MINOR.PATCH-beta.N`, and on any ref other than
+`main` or a `v*` tag.
+
+**Runner.** Every job uses one `runs-on` line: the self-hosted runner named by the
+repository variable `RUNS_ON_PUBLISH` (a JSON array such as `["self-hosted","Linux","X64"]`)
+for a non-pull-request event on `main` or a release tag, and hosted `ubuntu-latest` for
+everything else. When `RUNS_ON_PUBLISH` is not set, everything runs on hosted runners;
+deleting it is the off switch. The older `RUNS_ON` variable is no longer read by anything
+here. Because a self-hosted runner shares its host's home directory, the workflow keeps
+setup-java's `settings.xml` and the Maven local repository under the runner's temporary
+directory, points `mvnw`'s own Maven download there too (`MAVEN_USER_HOME`), and never
+writes to `~/.m2`.
 
 The full story — what a release IS in this org, and the operator's launch-day click list —
 is in **`hugmesh-auth-core/RELEASING.md`**. This file is what is specific to commons.
@@ -19,10 +62,10 @@ unfired.
 
 ## Two artifacts, not one
 
-`deploy` publishes **`hugmesh-commons-2.1.0.jar` and `hugmesh-commons-2.1.0-tests.jar`**.
+`deploy` publishes **`hugmesh-commons-<version>.jar` and `hugmesh-commons-<version>-tests.jar`**.
 The second comes from maven-jar-plugin's `test-jar` goal, bound in `pom.xml` as the
 `shared-test-base` execution, and it is not optional: `hugmesh-auth-core`'s test scope
-compiles against `net.hugmesh:hugmesh-commons:2.1.0:tests` for `PostgresTestSupport`, the
+compiles against `net.hugmesh:hugmesh-commons:<version>:tests` for `PostgresTestSupport`, the
 one shared Testcontainers-Postgres base the fleet uses instead of a per-repo copy.
 
 **`-DskipTests` is correct; `-Dmaven.test.skip=true` is not.** `skipTests` skips test
@@ -36,7 +79,7 @@ next link at test-compile, where it reads like an auth-core problem.
 ## Why the repository URL is in a CI-only settings file and not in pom.xml
 
 This project's effective repository list is **Maven Central alone**, and its own
-`<parent>` (`net.hugmesh:hugmesh-parent:2.8.0`) is 404 there — so a CI build cannot even
+`<parent>` (`net.hugmesh:hugmesh-parent`) is 404 there — so a CI build cannot even
 resolve its parent. The route is `.github/maven-ci-settings.xml`, passed with `-s` by
 `release.yml` and by nothing else.
 
@@ -138,7 +181,7 @@ no Actions job in this org starts at all today (billing; `hugmesh-auth-core/RELE
 
 ## The guard
 
-`ReleasePublishGuardTest` (7 checks) pins all of the above by **parsing** `release.yml`,
+`ReleasePublishGuardTest` (16 checks) pins all of the above by **parsing** `release.yml`,
 `maven-ci-settings.xml` and `pom.xml` rather than grepping them — a guard that matches one
 *spelling* of a config file fails open on every other spelling, and a flag that survives
 only in a YAML comment is not a flag. Run it on its own:
