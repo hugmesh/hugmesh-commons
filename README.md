@@ -309,3 +309,7 @@ touches this library.
   backups, egress VPN drop-in, per-node attached storage, desktop app governance,
   workload console, device-license registry, games app-store, audio/video relay via
   coturn/TURN, and OWASP pen-test + nuclei integration in CI.
+
+## License
+
+MIT. See [LICENSE](LICENSE). The published pom names the same license.
