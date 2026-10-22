@@ -31,6 +31,25 @@
     (Casdoor JWT authorities, issuer-&gt;domain registry, role + tenant helpers, the
     config-gated multi-issuer resource-server wiring, the BFF ApiException) — lifted
     verbatim from the per-repo copies with every security behaviour preserved.</description>
+  <url>https://github.com/hugmesh/hugmesh-commons</url>
+
+  <!-- The license that ships inside the published pom. It must name the same license as
+       the LICENSE file at the repo root; LicenseMetadataTest checks that the two agree.
+       hugmesh-parent declares no <licenses>, <scm> or <url>, so nothing is inherited. -->
+  <licenses>
+    <license>
+      <name>MIT License</name>
+      <url>https://opensource.org/license/mit</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+
+  <scm>
+    <connection>scm:git:https://github.com/hugmesh/hugmesh-commons.git</connection>
+    <developerConnection>scm:git:https://github.com/hugmesh/hugmesh-commons.git</developerConnection>
+    <url>https://github.com/hugmesh/hugmesh-commons</url>
+    <tag>HEAD</tag>
+  </scm>
 
   <!-- A LIBRARY, not a Spring Boot application: disable the spring-boot repackage goal
        (no executable jar / main class) so `install` produces a plain reusable jar. -->
