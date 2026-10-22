@@ -7,7 +7,7 @@
   <parent>
     <groupId>net.hugmesh</groupId>
     <artifactId>hugmesh-parent</artifactId>
-    <version>2.8.0</version>
+    <version>2.9.0-beta.1</version>
     <relativePath/>
   </parent>
 
@@ -24,7 +24,7 @@
        whatever the parent's groupId happens to be. -->
   <groupId>net.hugmesh</groupId>
   <artifactId>hugmesh-commons</artifactId>
-  <version>2.1.0</version>
+  <version>2.2.0-beta.1</version>
   <packaging>jar</packaging>
   <name>hugmesh-commons</name>
   <description>Shared, canonical HugMesh security/tenancy/config/web building blocks
@@ -45,7 +45,7 @@
       </plugin>
 
       <!-- Publish a TEST-JAR alongside the main jar so every consumer can depend on
-           `net.hugmesh:hugmesh-commons:2.1.0:tests` (test scope) and reuse
+           `net.hugmesh:hugmesh-commons:<this version>:tests` (test scope) and reuse
            ONE shared Testcontainers-Postgres base (PostgresTestSupport) instead of
            re-copying it per repo. -->
       <plugin>

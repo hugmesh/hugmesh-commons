@@ -62,11 +62,11 @@ flowchart TB
 ```
 groupId:    net.hugmesh
 artifactId: hugmesh-commons
-version:    2.1.0
+version:    2.2.0-beta.1
 packaging:  jar
 ```
 
-Child of `net.hugmesh:hugmesh-parent:2.8.0` (the metapom), which pins the
+Child of `net.hugmesh:hugmesh-parent:2.9.0-beta.1` (the metapom), which pins the
 ecosystem baseline: **Spring Boot 4.0.7 / Spring Cloud 2025.1.2** on **Java 25 LTS**
 (eclipse-temurin:25), with Testcontainers 2.0.5.
 
@@ -170,7 +170,7 @@ Calls that pass a `Collection<GrantedAuthority>` use the existing overloads unch
 Alongside the main jar, the `maven-jar-plugin` `test-jar` goal publishes
 `net.hugmesh.commons.testsupport.PostgresTestSupport`
 (`src/test/java/net/hugmesh/commons/testsupport/PostgresTestSupport.java`) as
-`net.hugmesh:hugmesh-commons:2.1.0:tests` (test scope). Consumers extend it. They get
+`net.hugmesh:hugmesh-commons:2.2.0-beta.1:tests` (test scope). Consumers extend it. They get
 ONE Testcontainers-Postgres base for the whole org, not a per-repo copy of the
 container, Liquibase and R2DBC wiring.
 
@@ -179,7 +179,7 @@ container, Liquibase and R2DBC wiring.
   <groupId>net.hugmesh</groupId>
   <artifactId>hugmesh-commons</artifactId>
   <classifier>tests</classifier>
-  <version>2.1.0</version>
+  <version>2.2.0-beta.1</version>
   <scope>test</scope>
 </dependency>
 ```
@@ -219,16 +219,19 @@ Two pipelines are checked in:
   deploy step authenticates with the GitLab-injected `CI_JOB_TOKEN`. No secret is
   committed to the repository.
 - `.github/workflows/release.yml` publishes the jar and the `tests` classifier to
-  GitHub Packages. It runs only on manual dispatch (`workflow_dispatch`), never on push
-  or tag. `RELEASING.md` records that it has never run, and that no Actions job in
+  GitHub Packages. A person starts it by pushing a `v<version>` tag that equals the
+  pom version (or by a manual dispatch on that tag); a dispatch on `main` only runs
+  `verify`, and a branch push starts nothing. `RELEASING.md` records that it has never
+  run, and that no Actions job in
   the org starts at all because of a billing block.
 
 ## Current State
 
-- **At `2.1.0` on the unified ecosystem baseline.** Spring Boot 4.0.7 / Spring Cloud
-  2025.1.2 on Java 25 LTS, Testcontainers 2.0.5, child of `hugmesh-parent:2.8.0`
+- **At `2.2.0-beta.1` on the unified ecosystem baseline** (the first beta; 2.1.0 is
+  pinned by consumers, and no GitHub workflow here has ever published it). Spring Boot 4.0.7 / Spring Cloud
+  2025.1.2 on Java 25 LTS, Testcontainers 2.0.5, child of `hugmesh-parent:2.9.0-beta.1`
   (`hugmesh-federation-api` is the migrated exemplar). The groupId is `net.hugmesh`,
-  the reverse of `hugmesh.net`, for this artifact and its parent alike. The artifact's `2.1.0` and the inherited `hugmesh-parent:2.8.0` are two
+  the reverse of `hugmesh.net`, for this artifact and its parent alike. The artifact's `2.2.0-beta.1` and the inherited `hugmesh-parent:2.9.0-beta.1` are two
   different version numbers and are not expected to track each other; see
   [Coordinates](#coordinates) and `pom.xml`.
 - **Bottom of the shared-artifact stack.** `hugmesh-auth-core` depends on this library,
