@@ -9,7 +9,9 @@
 # publish-on-merge would redeploy whatever pom.xml holds over a coordinate that is already
 # out there, which is what forced hugmesh-auth-core's 2.4.2 re-pin.
 #
-#   push tag v<version>             -> version guard, verify, deploy, GitHub prerelease
+#   push tag v<version>             -> version guard, verify, deploy, cosign keyless
+#                                      signature + build-provenance attestation over the
+#                                      published files, GitHub prerelease (+ SHA256SUMS)
 #   workflow_dispatch on a v* tag   -> the same (the re-run path; the release step skips
 #                                      itself if that GitHub Release already exists)
 #   workflow_dispatch on main       -> version guard and verify only, nothing published
@@ -109,6 +111,11 @@ jobs:
     permissions:
       contents: read
       packages: write
+      # The two below exist only for the signing steps after the deploy:
+      # id-token for the keyless cosign signature and the attestation's
+      # Sigstore certificate, attestations to store the provenance on GitHub.
+      id-token: write
+      attestations: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -242,6 +249,68 @@ jobs:
           # unset; the preflight step above reports that case.
           UPSTREAM_PACKAGES_ACTOR: ${{ secrets.PACKAGES_READ_ACTOR || github.actor }}
           UPSTREAM_PACKAGES_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN || secrets.GITHUB_TOKEN }}
+      # --- signed-maven-20261028 ---
+      # Everything below signs what the deploy step just published, from this
+      # job, by content: the published files are copied under their GitHub
+      # Packages file names, SHA256SUMS over them gets a cosign keyless
+      # signature (Sigstore, GitHub OIDC) and every file gets a SLSA
+      # build-provenance attestation stored by GitHub. SHA256SUMS and the
+      # cosign bundle are attached to the GitHub Release, so a consumer can
+      # check what the registry serves against a signed list. A run that
+      # did not deploy (dispatch on main) signs nothing.
+      - name: Collect the published files
+        if: needs.version.outputs.kind == 'release'
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          rm -rf release && mkdir release
+          cp "target/hugmesh-commons-$VERSION.jar" release/
+          cp "target/hugmesh-commons-$VERSION-tests.jar" release/
+          cp pom.xml "release/hugmesh-commons-$VERSION.pom"
+          cd release
+          sha256sum -- * > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Install cosign
+        if: needs.version.outputs.kind == 'release'
+        uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5  # v3.10.1
+        with:
+          cosign-release: 'v2.4.1'
+
+      - name: Sign SHA256SUMS (cosign keyless, GitHub OIDC) and check the signature
+        # Keyless: the certificate is issued to THIS workflow file at THIS tag by
+        # GitHub's OIDC issuer and logged in Sigstore's public transparency log.
+        # The check right after uses the identity a consumer would use.
+        if: needs.version.outputs.kind == 'release'
+        working-directory: release
+        env:
+          IDENTITY: https://github.com/${{ github.repository }}/.github/workflows/release.yml@${{ github.ref }}
+        run: |
+          set -euo pipefail
+          cosign sign-blob --yes --bundle SHA256SUMS.sigstore.json SHA256SUMS
+          cosign verify-blob --bundle SHA256SUMS.sigstore.json \
+            --certificate-identity "$IDENTITY" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            SHA256SUMS
+
+      - name: Attest build provenance for every published file
+        if: needs.version.outputs.kind == 'release'
+        uses: actions/attest-build-provenance@96278af6caaf10aea03fd8d33a09a777ca52d62f  # v3.2.0
+        with:
+          subject-path: release/*
+
+      - name: Keep SHA256SUMS and its signature for the GitHub Release
+        if: needs.version.outputs.kind == 'release'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: release-signature
+          path: |
+            release/SHA256SUMS
+            release/SHA256SUMS.sigstore.json
+          if-no-files-found: error
+          retention-days: 7
+
 
   # A GitHub Release for the tag, marked prerelease and never "latest" while the version
   # is a beta. Re-running on the same tag skips the create instead of failing.
@@ -252,6 +321,12 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Fetch SHA256SUMS and its signature from the publish job
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: release-signature
+          path: release
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -264,8 +339,8 @@ jobs:
             echo "GitHub Release ${TAG} already exists; leaving it as it is."
             exit 0
           fi
-          flags=(--verify-tag --title "hugmesh-commons ${VERSION}" --notes "net.hugmesh:hugmesh-commons:${VERSION} and its tests classifier, published to GitHub Packages.")
+          flags=(--verify-tag --title "hugmesh-commons ${VERSION}" --notes "net.hugmesh:hugmesh-commons:${VERSION} and its tests classifier, published to GitHub Packages. SHA256SUMS lists the published files; SHA256SUMS.sigstore.json is its cosign keyless signature (identity https://github.com/hugmesh/hugmesh-commons/.github/workflows/release.yml@refs/tags/${TAG}, issuer https://token.actions.githubusercontent.com); each file also has a GitHub build-provenance attestation (gh attestation verify <file> --repo hugmesh/hugmesh-commons).")
           case "${VERSION}" in
             *-*) flags+=(--prerelease --latest=false) ;;
           esac
-          gh release create "${TAG}" "${flags[@]}"
+          gh release create "${TAG}" "${flags[@]}" release/SHA256SUMS release/SHA256SUMS.sigstore.json
