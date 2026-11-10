@@ -40,10 +40,12 @@ import static org.assertj.core.api.Assertions.assertThat;
  *       {@code pom.xml} holds over an already-published, immutable coordinate — the failure
  *       that forced hugmesh-auth-core's 2.4.2 re-pin. A publishing workflow may carry only
  *       {@code workflow_dispatch} and a {@code push} that is restricted to {@code v*} TAGS
- *       (the beta scheme of 2026-10-21: the tag is the decision to publish). The check is an
- *       ALLOWLIST over EVERY workflow file, not a blacklist of {@code push} spellings in one
- *       of them, and the deploy step itself runs only when the version guard said the ref
- *       is a {@code v<version>} tag equal to {@code pom.xml}'s version.</li>
+ *       (the beta scheme of 2026-10-21: the tag is the decision to publish) plus, for the
+ *       stable channel, {@code release/**} BRANCHES, whose runs only verify. Never
+ *       {@code main}. The check is an ALLOWLIST over EVERY workflow file, not a blacklist of
+ *       {@code push} spellings in one of them, and the deploy step itself runs only when
+ *       the version guard said the ref is a {@code v<version>} tag equal to
+ *       {@code pom.xml}'s version (kind=release; a release/X.Y push is kind=branch).</li>
  *   <li><b>Resolution is CI-only.</b> {@code maven.pkg.github.com} answers 401 to an
  *       unauthenticated GET (measured 2026-09-17; 401 again with a classic token lacking
  *       {@code read:packages}), so its URL may appear ONLY in
@@ -78,8 +80,9 @@ class ReleasePublishGuardTest {
 
     /**
      * The only triggers a publishing workflow may carry. {@code push} is allowed ONLY in its
-     * tag-restricted form (see {@link #assertPushIsTagOnly}); anything else publishes without
-     * a human deciding to.
+     * tag- (and release/**-branch-) restricted form (see
+     * {@link #assertPushIsTagOrReleaseBranchOnly}); anything else publishes without a human
+     * deciding to.
      */
     private static final Set<String> ALLOWED_TRIGGERS = Set.of("workflow_dispatch", "push");
 
@@ -517,7 +520,7 @@ class ReleasePublishGuardTest {
                             + "first run failed. Declared: %s", relative, triggers)
                     .contains("workflow_dispatch");
             if (triggers.contains("push")) {
-                assertPushIsTagOnly(onBlock(workflow), relative);
+                assertPushIsTagOrReleaseBranchOnly(onBlock(workflow), relative);
             }
         }
         assertThat(publishing)
@@ -532,14 +535,19 @@ class ReleasePublishGuardTest {
         return workflow.containsKey(Boolean.TRUE) ? workflow.get(Boolean.TRUE) : workflow.get("on");
     }
 
+    /** The only branch filter a publishing workflow's push may carry: the stable channel's. */
+    private static final Set<String> RELEASE_BRANCH_PATTERNS = Set.of("release/**", "release/*");
+
     /**
      * A {@code push} trigger fires on EVERY branch and tag push unless it is narrowed. The
-     * only acceptable shape is a mapping whose sole key is {@code tags}, every pattern of
-     * which starts with {@code v} followed by a digit or a glob — so no {@code branches},
-     * no {@code branches-ignore}, no {@code tags-ignore} and no {@code paths} (a
-     * {@code paths}-only push still fires on every branch).
+     * only acceptable shape is a mapping whose keys are {@code tags} and, optionally,
+     * {@code branches}: every tag pattern starts with {@code v} followed by a digit or a
+     * glob, and every branch pattern is {@code release/**} (or {@code release/*}), whose
+     * runs only verify. So no {@code main}, no {@code **}, no {@code branches-ignore}, no
+     * {@code tags-ignore} and no {@code paths} (a {@code paths}-only push still fires on
+     * every branch).
      */
-    private static void assertPushIsTagOnly(Object on, String relative) {
+    private static void assertPushIsTagOrReleaseBranchOnly(Object on, String relative) {
         assertThat(on)
                 .as("%s lists `push` without any filter (list or scalar form of `on:`), so it "
                         + "fires on every branch push — publish-on-merge.", relative)
@@ -551,10 +559,26 @@ class ReleasePublishGuardTest {
                 .isInstanceOf(Map.class);
         Map<?, ?> pushMap = (Map<?, ?>) push;
         assertThat(pushMap.keySet().stream().map(String::valueOf).toList())
-                .as("%s: `push:` must be narrowed by `tags:` and nothing else. `branches` "
-                        + "publishes on merge; `paths`/`tags-ignore`/`branches-ignore` widen it "
-                        + "back to branch pushes. Declared keys: %s", relative, pushMap.keySet())
-                .containsExactly("tags");
+                .as("%s: `push:` must be narrowed by `tags:` (and optionally `branches:` of "
+                        + "release/** only) and nothing else. `paths`/`tags-ignore`/"
+                        + "`branches-ignore` widen it back to every branch push. Declared keys: %s",
+                        relative, pushMap.keySet())
+                .contains("tags")
+                .isSubsetOf("tags", "branches");
+        if (pushMap.containsKey("branches")) {
+            Object branches = pushMap.get("branches");
+            assertThat(branches).as("%s: `push.branches` must be a list", relative)
+                    .isInstanceOf(List.class);
+            assertThat((List<?>) branches).as("%s: `push.branches` is empty", relative).isNotEmpty();
+            for (Object pattern : (List<?>) branches) {
+                assertThat(RELEASE_BRANCH_PATTERNS)
+                        .as("%s: branch pattern '%s' is not release/**. A push to main (or to "
+                                + "any branch) would start a run on every merge; only the "
+                                + "stable channel's release/X.Y branches may, and their runs "
+                                + "only verify.", relative, pattern)
+                        .contains(String.valueOf(pattern));
+            }
+        }
         Object tags = pushMap.get("tags");
         assertThat(tags).as("%s: `push.tags` must be a non-empty list", relative)
                 .isInstanceOf(List.class);
@@ -667,6 +691,22 @@ class ReleasePublishGuardTest {
     }
 
     @Test
+    @DisplayName("release.yml runs on release/** pushes and carries the stable-channel marker the org release script requires")
+    void releaseWorkflowSupportsTheStableChannel() throws Exception {
+        Object push = ((Map<?, ?>) onBlock(parseWorkflow(RELEASE_WORKFLOW))).get("push");
+        assertThat(push).as("%s has no `push:` trigger", RELEASE_WORKFLOW).isInstanceOf(Map.class);
+        assertThat(String.valueOf(((Map<?, ?>) push).get("branches")))
+                .as("hugmesh-generator scripts/release.sh --channel stable needs a green push run "
+                        + "on release/X.Y before it tags, so %s must run on release/** pushes",
+                        RELEASE_WORKFLOW)
+                .isEqualTo("[release/**]");
+        assertThat(read(RELEASE_WORKFLOW).lines().toList())
+                .as("hugmesh-generator scripts/release.sh --channel stable refuses this repo "
+                        + "unless %s carries this literal marker line", RELEASE_WORKFLOW)
+                .contains("# hugmesh-release-channels: beta+stable");
+    }
+
+    @Test
     @DisplayName("the version guard publishes only a v<version> tag equal to the pom version, and refuses every other ref")
     void versionGuardDecidesFromRefAndPomVersion() throws Exception {
         org.junit.jupiter.api.Assumptions.assumeTrue(bashAvailable(),
@@ -690,6 +730,14 @@ class ReleasePublishGuardTest {
         assertThat(main.exit()).as("dispatch on main must pass as a verify-only run: %s", main.stdout()).isZero();
         assertThat(main.output()).contains("kind=main").doesNotContain("kind=release");
 
+        // Stable channel: a push to release/X.Y verifies (kind=branch), never publishes.
+        GuardRun branch = runVersionGuard(script, "refs/heads/release/2.2", "2.2.0");
+        assertThat(branch.exit()).as("release/2.2 with pom 2.2.0 must verify: %s", branch.stdout()).isZero();
+        assertThat(branch.output()).contains("kind=branch").doesNotContain("kind=release");
+        GuardRun patch = runVersionGuard(script, "refs/heads/release/2.2", "2.2.1");
+        assertThat(patch.exit()).as("release/2.2 with pom 2.2.1 must verify: %s", patch.stdout()).isZero();
+        assertThat(patch.output()).contains("kind=branch");
+
         String[][] refused = {
             {"refs/tags/v2.2.0-beta.2", "2.2.0-beta.1", "tag does not match the pom"},
             {"refs/tags/v2.2.0", "2.2.0-beta.1", "final tag on a beta pom"},
@@ -697,6 +745,12 @@ class ReleasePublishGuardTest {
             {"refs/tags/studio-v2.2.0-beta.1", "2.2.0-beta.1", "another artifact's tag prefix"},
             {"refs/heads/feature/x", "2.2.0-beta.1", "a feature branch"},
             {"refs/heads/mainline", "2.2.0-beta.1", "a branch that only starts with main"},
+            {"refs/heads/release/2.3", "2.2.0", "a release branch of another line"},
+            {"refs/heads/release/2.2", "2.3.0", "a pom of another line on release/2.2"},
+            {"refs/heads/release/2.2-hotfix", "2.2.0", "a branch that only starts with release/X.Y"},
+            {"refs/heads/release/2.2/x", "2.2.0", "a branch under release/X.Y"},
+            {"refs/heads/release/foo", "2.2.0", "a release branch with no X.Y"},
+            {"refs/heads/release/2.2", "2.2.0-SNAPSHOT", "a SNAPSHOT version on release/2.2"},
             {"refs/pull/7/merge", "2.2.0-beta.1", "a pull request ref"},
             {"refs/tags/v2.2.0-SNAPSHOT", "2.2.0-SNAPSHOT", "a SNAPSHOT version"},
             {"refs/heads/main", "2.2.0-SNAPSHOT", "a SNAPSHOT version on main"},
