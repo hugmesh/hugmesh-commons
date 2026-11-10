@@ -220,8 +220,9 @@ Two pipelines are checked in:
   committed to the repository.
 - `.github/workflows/release.yml` publishes the jar and the `tests` classifier to
   GitHub Packages. A person starts it by pushing a `v<version>` tag that equals the
-  pom version (or by a manual dispatch on that tag); a dispatch on `main` only runs
-  `verify`, and a branch push starts nothing. `RELEASING.md` records that it has never
+  pom version (or by a manual dispatch on that tag): a beta `vX.Y.Z-beta.N` on `main`,
+  a stable `vX.Y.Z` on `release/X.Y`. A dispatch on `main` and a push to `release/X.Y`
+  only run `verify`; a push to any other branch starts nothing. `RELEASING.md` records that it has never
   run, and that no Actions job in
   the org starts at all because of a billing block.
 

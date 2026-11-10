@@ -3,19 +3,34 @@
 # which made it the hard stop in the net.hugmesh publish chain: nothing downstream of it
 # could be published because nothing could publish IT.
 #
-# WHAT STARTS A PUBLISH (beta scheme, 2026-10-21). A Maven coordinate is immutable, so a
-# publish happens only when a person pushes a `v<version>` tag whose name equals the
-# <version> in pom.xml (for example v2.2.0-beta.1). There is NO `push: branches` trigger:
-# publish-on-merge would redeploy whatever pom.xml holds over a coordinate that is already
-# out there, which is what forced hugmesh-auth-core's 2.4.2 re-pin.
+# hugmesh-release-channels: beta+stable
+# WHAT STARTS A PUBLISH. A Maven coordinate is immutable, so a publish happens only when a
+# person pushes a `v<version>` tag whose name equals the <version> in pom.xml. The TAG
+# decides the channel; scripts/release-channel.sh holds the branch rules and
+# scripts/test-release-channel.sh tests them (the version job runs it first). There is NO
+# push trigger on main: publish-on-merge would redeploy whatever pom.xml holds over a
+# coordinate that is already out there, which is what forced hugmesh-auth-core's 2.4.2
+# re-pin. A push to release/X.Y only verifies: every deploy, signing and release step is
+# gated on kind == 'release', which only a tag gets.
 #
-#   push tag v<version>             -> version guard, verify, deploy, cosign keyless
-#                                      signature + build-provenance attestation over the
-#                                      published files, GitHub prerelease (+ SHA256SUMS)
-#   workflow_dispatch on a v* tag   -> the same (the re-run path; the release step skips
-#                                      itself if that GitHub Release already exists)
-#   workflow_dispatch on main       -> version guard and verify only, nothing published
-#   anything else                   -> the version guard refuses it
+#   push tag vX.Y.Z-beta.N          -> BETA, commit on main: version guard, verify, deploy,
+#                                      cosign keyless signature + build-provenance
+#                                      attestation over the published files, GitHub
+#                                      prerelease, never Latest (+ SHA256SUMS)
+#   push tag vX.Y.Z                 -> STABLE, commit on release/X.Y and no higher vX.Y.W:
+#                                      the same publish, then a full GitHub Release marked
+#                                      Latest only when X.Y is the newest stable line
+#                                      (decided again right before it is created)
+#   push to release/X.Y             -> version guard and verify only (pom.xml must be
+#                                      X.Y.*): the green branch run hugmesh-generator
+#                                      scripts/release.sh --channel stable requires
+#   workflow_dispatch on a v* tag   -> the same as the tag push (the re-run path; the
+#                                      release step skips itself if that GitHub Release
+#                                      already exists)
+#   workflow_dispatch on main or
+#   on release/X.Y                  -> version guard and verify only, nothing published
+#   anything else (-rc.N tags,
+#   other branches)                 -> the version job refuses it
 #
 # RUNNER. Every job uses the same runs-on line. It picks vars.RUNS_ON_PUBLISH (a JSON
 # array, for example ["self-hosted","Linux","X64"]) ONLY for a non-PR event on main or on
@@ -42,6 +57,7 @@ name: Release
 
 on:
   push:
+    branches: ['release/**']
     tags: ['v*']
   workflow_dispatch: {}
 
@@ -58,9 +74,16 @@ jobs:
     outputs:
       version: ${{ steps.guard.outputs.version }}
       kind: ${{ steps.guard.outputs.kind }}
+      channel: ${{ steps.channel.outputs.channel }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Self-test the release channel rules
+        run: bash scripts/test-release-channel.sh
 
       # Reads <project><version>, never the <parent> version, by parsing the XML.
       - name: Read version from pom.xml
@@ -96,14 +119,36 @@ jobs:
             refs/heads/main)
               kind=main
               ;;
+            refs/heads/release/*)
+              if ! [[ "${GITHUB_REF#refs/heads/}" =~ ^release/([0-9]+)\.([0-9]+)$ ]]; then
+                echo "::error::${GITHUB_REF#refs/heads/} is not named release/X.Y. Nothing runs."
+                exit 1
+              fi
+              case "${VERSION}" in
+                "${BASH_REMATCH[1]}.${BASH_REMATCH[2]}".*) ;;
+                *)
+                  echo "::error::pom.xml version ${VERSION} is not on the ${BASH_REMATCH[1]}.${BASH_REMATCH[2]} line, but this is ${GITHUB_REF#refs/heads/}."
+                  exit 1
+                  ;;
+              esac
+              kind=branch
+              ;;
             *)
-              echo "::error::${GITHUB_REF} is neither main nor a v<version> tag. Releases run from a v* tag; a dispatch on main only verifies."
+              echo "::error::${GITHUB_REF} is neither main, release/X.Y nor a v<version> tag. Releases run from a v* tag; main and release/X.Y only verify."
               exit 1
               ;;
           esac
           echo "kind=${kind} version=${VERSION}"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "kind=${kind}" >> "$GITHUB_OUTPUT"
+
+      # The channel and the branch rules: a vX.Y.Z-beta.N tag must be on main, a stable
+      # vX.Y.Z on release/X.Y with no higher vX.Y.W. Refuses before anything is built.
+      - name: Decide the release channel
+        id: channel
+        env:
+          VERSION: ${{ steps.guard.outputs.version }}
+        run: bash scripts/release-channel.sh
 
   build-and-publish:
     needs: version
@@ -321,6 +366,21 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Asked again here, not read from the version job: a newer stable may have been
+      # published since that job ran (or since the run being re-run), and then this one
+      # must not be marked Latest.
+      - name: Decide again whether this release is Latest
+        id: channel
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: bash scripts/release-channel.sh
+
       - name: Fetch SHA256SUMS and its signature from the publish job
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
@@ -333,6 +393,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TAG: ${{ github.ref_name }}
           VERSION: ${{ needs.version.outputs.version }}
+          LATEST: ${{ steps.channel.outputs.latest }}
         run: |
           set -euo pipefail
           if gh release view "${TAG}" >/dev/null 2>&1; then
@@ -342,5 +403,7 @@ jobs:
           flags=(--verify-tag --title "hugmesh-commons ${VERSION}" --notes "net.hugmesh:hugmesh-commons:${VERSION} and its tests classifier, published to GitHub Packages. SHA256SUMS lists the published files; SHA256SUMS.sigstore.json is its cosign keyless signature (identity https://github.com/hugmesh/hugmesh-commons/.github/workflows/release.yml@refs/tags/${TAG}, issuer https://token.actions.githubusercontent.com); each file also has a GitHub build-provenance attestation (gh attestation verify <file> --repo hugmesh/hugmesh-commons).")
           case "${VERSION}" in
             *-*) flags+=(--prerelease --latest=false) ;;
+            *)
+              if [ "${LATEST:-}" = true ]; then flags+=(--latest); else flags+=(--latest=false); fi ;;
           esac
           gh release create "${TAG}" "${flags[@]}" release/SHA256SUMS release/SHA256SUMS.sigstore.json
