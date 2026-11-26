@@ -60,31 +60,8 @@ public abstract class PostgresTestSupport {
      * ONE Postgres for the whole test JVM. Static block start (not {@code @Container})
      * so it is reused across every subclass and never races on a busy Docker host.
      */
-    protected static final PostgreSQLContainer<?> POSTGRES = new SharedPostgres();
-
-    /**
-     * The singleton container at {@code max_connections=400} (Postgres defaults to 100).
-     * ONE container serves every Spring context the TestContext cache keeps alive, and
-     * each holds its own R2DBC pool, so the pools add up against one server; at the
-     * default a consumer's suite died with "FATAL: sorry, too many clients already" in
-     * whichever classes ran late (hugmesh-admin-bff-api#185). It MUST be set by
-     * overriding {@code configure()}: {@code PostgreSQLContainer.configure()} sets the
-     * command itself (to pass {@code fsync=off}) during {@code start()}, so a plain
-     * {@code withCommand(...)} is silently overwritten — and {@code fsync=off} is
-     * re-stated here because taking over the command drops it. A named subclass, since
-     * {@code PostgreSQLContainer<SELF>} is self-referential.
-     */
-    private static final class SharedPostgres extends PostgreSQLContainer<SharedPostgres> {
-        SharedPostgres() {
-            super(DockerImageName.parse("postgres:16-alpine"));
-        }
-
-        @Override
-        protected void configure() {
-            super.configure();
-            setCommand("postgres", "-c", "fsync=off", "-c", "max_connections=400");
-        }
-    }
+    protected static final PostgreSQLContainer<?> POSTGRES =
+            new PostgreSQLContainer<>(DockerImageName.parse("postgres:16-alpine"));
 
     /** Monotonic per-class database suffix so every test class gets a clean db. */
     private static final AtomicInteger DB_SEQ = new AtomicInteger();
@@ -145,12 +122,6 @@ public abstract class PostgresTestSupport {
                 () -> "jdbc:postgresql://" + host + ":" + port + "/" + dbName);
         registry.add("spring.liquibase.user", () -> user);
         registry.add("spring.liquibase.password", () -> password);
-
-        // A small per-context pool (hugmesh-admin-bff-api#185): Spring Boot's default
-        // initial-size=10 makes every cached context hold ten connections from the start.
-        registry.add("spring.r2dbc.pool.initial-size", () -> "1");
-        registry.add("spring.r2dbc.pool.max-size", () -> "4");
-        registry.add("spring.r2dbc.pool.max-idle-time", () -> "30s");
 
         // ${json.type} substitution — lazy: read after the subclass instance initializer
         // publishes its jsonTypeOverride(); default "text" (see class javadoc).
